@@ -9,4 +9,4 @@ LoSSETT (the Local Scale-to-Scale Energy Transfer Tool) is a program designed to
 
 ## Getting Started
 
-### Prerequisite
+### Prerequisites
