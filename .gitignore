@@ -1,0 +1,9 @@
+# backup files
+*~
+# images and PDFs
+*.pdf
+*.svg
+*.png
+# Checkpoints and caches
+.ipynb_checkpoints/
+__pycache__/
