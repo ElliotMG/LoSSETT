@@ -4,9 +4,8 @@ LoSSETT (the Local Scale-to-Scale Energy Transfer Tool) is a program designed to
 
 ## Features
 
-- **Local Energy Transfer Calculation**: Accurately computes the total local scale-to-scale energy transfer term.
-- **Interactive Jupyter Notebook**: Provides an interactive interface for using the tool, making it easy to visualize and manipulate data.
-- **Modular Python Code**: Source code is organized into modules for ease of use and modification.
+- **Interactive Jupyter Notebook**: Provides an interactive interface for using the tool, making it straightforward to run the program, and visualise the ouputs.
+- **Modular Python Code**: Source code is organized into modules for ease of use and modification. In `LoSSETT_DYN.py` is the same content as the notebook but will run all at once as a normal python script. Be aware this may take some time (upwards of 10 minutes!).
 
 ## Getting Started
 
