@@ -1,7 +1,7 @@
 import sys
 import numpy as np
 
-def CalcPartitionIncrement(dR,Nlmax):
+def CalcPartitionIncrement(dR,Nlmax,verbose=False):
     """
     Calculate the partition of increments
     Calculate the smoothing function one time for all
@@ -25,7 +25,8 @@ def CalcPartitionIncrement(dR,Nlmax):
     # define scales $\ell$
 
     ld = np.array([dR+(1+ic)*dlbd[ic] for ic in range(Nlmax)])
-    print("ld: ", ld)
+    if verbose:
+        print("ld: ", ld)
     
     # Calculate the increment lengths one time for all
     # for nlx
@@ -48,9 +49,9 @@ def CalcPartitionIncrement(dR,Nlmax):
 
     llx = np.zeros((Nlmax,nmaxl))
     lly = np.zeros((Nlmax,nmaxl))
-
-    print("dld: ", dld)
-    print("dlbd: ", dlbd)
+    if verbose:
+        print("dld: ", dld)
+        print("dlbd: ", dlbd)
 
     for ic in range(Nlmax):
         dll = dld[ic]
@@ -63,7 +64,7 @@ def CalcPartitionIncrement(dR,Nlmax):
             lly[ic, im] = llyt[nmov[im]]
 
     # Useful for the rest
-    ntm = np.max(nphiinc)
+    # ntm = np.max(nphiinc)
 
     # Calculate the smoothing function
 
@@ -89,14 +90,14 @@ def CalcPartitionIncrement(dR,Nlmax):
 
             psieps = np.exp(-1/(1-(llt**2/face/epsr**2))) / normphieps / (epsr**dims)
 
-            if llt >= np.sqrt(face) * epsr:
-                dpsieps = 0
-                psieps = 0
+            # if llt >= np.sqrt(face) * epsr:
+            #     dpsieps = 0
+            #     psieps = 0
 
             philsmooth[iic, ic] = dpsieps * llt**(dims-1) * dld[iic]
             phils[iic, ic] = psieps * dld[iic]
         
-    return 0
+    return dR, Nlmax, nphiinc, llx, lly, philsmooth, Nls
 
 if __name__ == "__main__":
     dR = np.double(sys.argv[1])
