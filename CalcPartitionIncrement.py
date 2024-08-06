@@ -64,7 +64,7 @@ def CalcPartitionIncrement(dR,Nlmax,verbose=False):
             lly[ic, im] = llyt[nmov[im]]
 
     # Useful for the rest
-    # ntm = np.max(nphiinc)
+    ntm = np.max(nphiinc)
 
     # Calculate the smoothing function
 

@@ -4,6 +4,7 @@
 *.pdf
 *.svg
 *.png
+*.md
 # Checkpoints and caches
 .ipynb_checkpoints/
 __pycache__/

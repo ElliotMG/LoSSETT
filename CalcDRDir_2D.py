@@ -11,15 +11,14 @@ def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, verbose
     # Dimensions
     nt = len(u.time)
     nz = len(u.level)
-    ny = len(u.lat)
-    nx = len(u.lon)
+    ny = len(u.latitude)
+    nx = len(u.longitude)
     # DeltaUcubemoy = np.full((Nlmax, nt), np.nan)
     # ^EMG 29.7.24 removed because script was getting stuck later on this even though
     # we never refer to it. See inside loop for comment where error is thrown up.
 
-    # 1. Calculate the increments on these base vectors
     SulocDR = xr.full_like(u, np.nan)
-    SulocDR = SulocDR.expand_dims(dim={"n_scales":range(Nlmax)}, axis=3).copy()
+    SulocDR = SulocDR.expand_dims(dim={"n_scales":range(Nlmax)}, axis=0).copy()
 
     
     for ic in range(Nlmax):
@@ -30,7 +29,7 @@ def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, verbose
         
         # duDRt = np.full((nx, ny, nz, ntm, nt), np.nan, dtype=np.float32)
         duDRt = xr.full_like(u, np.nan)
-        duDRt = duDRt.expand_dims(dim={"angle_incs":range(ntm)}, axis=3).copy()
+        duDRt = duDRt.expand_dims(dim={"angle_incs":range(ntm)}, axis=0).copy()
         
         for im in range(ntm):
             
@@ -44,21 +43,21 @@ def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, verbose
             # positions. If K is a vector, each element indicates the shift
             # amount in the corresponding dimension of A. np.roll should do
             # the same thing in python
-            du_l = u.roll(lon=-nlx, lat=-nly, roll_coords=False) - u
-            dv_l = v.roll(lon=-nlx, lat=-nly, roll_coords=False) - v
-            dw_l = w.roll(lon=-nlx, lat=-nly, roll_coords=False) - w
-            
+            du_l = u.roll(longitude=-nlx, latitude=-nly, roll_coords=False) - u
+            dv_l = v.roll(longitude=-nlx, latitude=-nly, roll_coords=False) - v
+            dw_l = w.roll(longitude=-nlx, latitude=-nly, roll_coords=False) - w
             dusquare = du_l**2 + dv_l**2 + dw_l**2
-            
+
             # Below is calculating component of du_l_3D along radial vector
             du_l_3D = (du_l * nlx * dR + dv_l * nly * dR + dw_l) / np.sqrt((nlx * dR)**2 + (nly * dR)**2)
             
-            duDRt[:, :, :, im, :] = du_l_3D * dusquare
-        
+            duDRt[im,:, :, :, :] = du_l_3D * dusquare
+
         # Calculate the angular average
-        duDRt = np.nanmean(duDRt, axis=3)
+        duDRt = duDRt.mean(dim='angle_incs')
+
         print('Average done')
-        SulocDR[:, :, :, ic, :] = duDRt
+        SulocDR[ic, :, :, :, :] = duDRt
         
         # Computation of the average DR
         # DeltaUcubemoy[ic, :] = np.mean(duDRt, axis=(0, 1, 2))
@@ -69,21 +68,40 @@ def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, verbose
 
     SulocDR_np = SulocDR.values  # Extract the NumPy array
     n1, n2, n3, n4, nt = SulocDR_np.shape
-    spsol_np = np.reshape(SulocDR_np / 4, (-1, n4))
+    print('SuloDR_np.shape:',SulocDR_np.shape)
+    # sys.exit()
+    # spsol_np = np.reshape(SulocDR_np / 4, (-1, n4))
     
-    spsol_np[np.isnan(spsol_np)] = 0
+    # spsol_np[np.isnan(spsol_np)] = 0
+    # spsol = xr.DataArray(spsol_np)
+    # print("Shape of spsol_np:", spsol.shape)
+    # print("Shape of philsmooth:", philsmooth.shape)
+    
+    # Adjustment to make for broadcasting arrays of different sizes
+    # MATLAB does this implicitly hence why it worked in only one line in the Matlab code.
+    # philsmooth_reshaped = philsmooth.reshape(Nlmax, Nls)
+    print("Applying Phil")
+    print("philsmooth.shape:",philsmooth.shape)
+    # print("spsol.shape:",spsol.shape)
+    # philsmooth_reshaped = np.broadcast_to(philsmooth,spsol.shape)
+    # DRdir2dt = np.dot(spsol,philsmooth)
+    print('SulocDR_np:',SulocDR_np)
+    DRdir2dt = np.tensordot(SulocDR_np,philsmooth,axes=(0,0))
+    print('DRdir2dt_orig:',DRdir2dt.shape)
+    DRdir2dt = np.transpose(DRdir2dt,[4,3,2,1,0])
+    print('DRdir2dt reshaped by np.transpose:',DRdir2dt.shape)
+    
+    # DRdir2dt_np = DRdir2dt.values
+    # DRdir2dt = xr.DataArray(DRdir2dt, dims=['new_dim', 'n4'])
 
-    # Optionally convert back to xarray.DataArray
-    spsol = xr.DataArray(spsol_np)
-    DRdir2dt = spsol * philsmooth
-    philsmooth
-    DRdir2dt_np = DRdir2dt.values
-    DRdir = np.reshape(DRdir2dt_np, (n1, n2, n3, Nls, nt))
+    
+    DRdir2dt = xr.DataArray(DRdir2dt, dims=['n_scales', 'longitude', 'latitude', 'level', 'time'],
+                         coords={'latitude': u.latitude, 'longitude': u.longitude, 'level': u.level,\
+                             'n_scales': range(Nlmax), 'time': u.time}, name='LoSSET_DR')
     # lDRdir = lsingd
-    
-    DRdir.to_netcdf('/out_nc/DRdir_l3_0p75deg_Jan2005.nc')
-    
-    return DRdir
+    DRdir2dt.to_netcdf(f'/home/users/emg97/emgScripts/LoSSETT/out_nc/DRdir2dt_Nlmax{Nlmax}_0p25_Jan1st2005.nc')
+    print(f'DRdir2dt written to NetCDF file')
+    return DRdir2dt
     # DRdir.max
 # if __name__ == "__main__":
 #     dR      = np.double(sys.argv[1])
