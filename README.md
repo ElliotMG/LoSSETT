@@ -1,6 +1,6 @@
 # LoSSETT (Local Scale-to-Scale Energy Transfer Tool)
 
-Based on the original MATLAB code developed by colleagues at CNRS (Kuzzay et al. 2015, Faranda et al. 2018)
+Based on the original MATLAB code developed by colleagues at CNRS ([Kuzzay et al. 2015](https://pubs.aip.org/aip/pof/article-abstract/27/7/075105/103779), Faranda et al. 2018)
 
 LoSSETT (the Local Scale-to-Scale Energy Transfer Tool) is a program designed to calculate local energy transfer across specified length scales. This repository contains source code in Python (.py files) and an interactive Jupyter Notebook that facilitates the use of the tool and the functions within the source code.
 
