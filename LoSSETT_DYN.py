@@ -1,3 +1,5 @@
+#!/usr/bin/env/python3
+
 import os
 import numpy as np
 from netCDF4 import Dataset
@@ -149,10 +151,10 @@ lbox = abs((lon[-1] - lon[0]) * 110000)
 
 # Call CalcPartitionIncrement
 from CalcPartitionIncrement import CalcPartitionIncrement
-dR, Nlmax, nphiinc, llx, lly, philsmooth, Nls = CalcPartitionIncrement(dR,Nlmax)
+dR, Nlmax, nphiinc, llx, lly, grad_G, Nls = CalcPartitionIncrement(dR,Nlmax)
 
 #Call CalcDRDir_2D
 from CalcDRDir_2D import CalcDRDir_2D
-CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls,fname_str,verbose=True)
+CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, grad_G, Nls,fname_str,verbose=True)
 
 # print(f'Processing complete for day {day}')
