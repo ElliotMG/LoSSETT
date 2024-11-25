@@ -2,7 +2,7 @@ import sys
 import numpy as np
 import xarray as xr
 
-def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, verbose=False):
+def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, fname_str, verbose=False):
     # Load the fields and pad them with symmetric conditions.
     # Note 29.7.24: commented out the padding becuase should be handled in np.roll
     # u_init = np.pad(u, ((Nlmax, Nlmax), (Nlmax, Nlmax), (0, 0), (0, 0)), mode='reflect')
@@ -56,7 +56,7 @@ def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, verbose
         # Calculate the angular average
         duDRt = duDRt.mean(dim='angle_incs')
 
-        print('Average done')
+        print(f'Average {ic} done')
         SulocDR[ic, :, :, :, :] = duDRt
         
         # Computation of the average DR
@@ -85,7 +85,7 @@ def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, verbose
     # print("spsol.shape:",spsol.shape)
     # philsmooth_reshaped = np.broadcast_to(philsmooth,spsol.shape)
     # DRdir2dt = np.dot(spsol,philsmooth)
-    print('SulocDR_np:',SulocDR_np)
+    # print('SulocDR_np:',SulocDR_np)
     DRdir2dt = np.tensordot(SulocDR_np,philsmooth,axes=(0,0))
     print('DRdir2dt_orig:',DRdir2dt.shape)
     DRdir2dt = np.transpose(DRdir2dt,[4,3,2,1,0])
@@ -99,7 +99,7 @@ def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, verbose
                          coords={'latitude': u.latitude, 'longitude': u.longitude, 'level': u.level,\
                              'n_scales': range(Nlmax), 'time': u.time}, name='LoSSET_DR')
     # lDRdir = lsingd
-    DRdir2dt.to_netcdf(f'/home/users/emg97/emgScripts/LoSSETT/out_nc/DRdir2dt_Nlmax{Nlmax}_0p25_Jan1st2005.nc')
+    DRdir2dt.to_netcdf(f'/home/users/emg97/emgScripts/LoSSETT/out_nc/DRdir2dt_Nlmax{Nlmax}_{fname_str}.nc')
     print(f'DRdir2dt written to NetCDF file')
     return DRdir2dt
     # DRdir.max
