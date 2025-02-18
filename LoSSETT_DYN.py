@@ -1,10 +1,10 @@
+#!/usr/bin/env python3
 import os
 import numpy as np
-from netCDF4 import Dataset
 import xarray as xr
 import sys
 import datetime as dt
-import matplotlib.pyplot as plt
+import psutil
 
 # function to sort out dims
 def rename_dims(ds):    
@@ -27,41 +27,80 @@ def rename_dims(ds):
         
     return ds
 ################# K-Scale Model Data preamble ####################
+start_date = dt.date(2016, 8, 1)
+ndays=1
+end_date = dt.date(2016, 8, 2)
 # if kscale:
 kscale_levs = [100,150,200,250,300,400,500,600,700,850,925,1000]
 # Variable read in for K-Scale
 data_dir = '/gws/nopw/j04/kscale/DATA/outdir_20160801T0000Z/DMn1280GAL9/channel_n2560_RAL3p2/'
+diro = '/gws/nopw/j04/kscale/USERS/emg/data/LoSSETT_out/channel_n2560_RAL3p2/'
 
-# data source, grid res, time
-fname_str = "kscaleRAL3n2560_0p5_DS_20160801"
+dates = [start_date+dt.timedelta(i) for i in range(ndays)]
 
-ds_uvw = []
-for lev in kscale_levs:
-    _ds_uvw = xr.open_mfdataset(
-        os.path.join(data_dir,f'profile_{lev}/',f'20160909_20160801T0000Z_channel_profile_3hourly_{lev}_05deg.nc')
-    )
-    _ds_uvw = _ds_uvw.drop_vars(["longitude_bnds","latitude_bnds","latitude_longitude"])
-    _ds_uvw = _ds_uvw.expand_dims(dim={"level": [lev]},axis=3)
-    ds_uvw.append(_ds_uvw)
+pid = os.getpid()
+python_process = psutil.Process(pid)
 
-ds_uvw = xr.concat(ds_uvw, dim="level")
-# ds_uvw = ds_uvw.isel(time=slice(0,4))
-ds_uvw = ds_uvw.transpose("time", "level", "latitude", "longitude")
-print(ds_uvw)
+for current_date in dates:
+    
+    date = current_date.strftime('%Y%m%d')
+    fname_str = f"kscaleRAL3n2560_0p5_{date}"
+    print(f'date: {date}')
 
-lon     = ds_uvw.variables['longitude'][:]
-lat     = ds_uvw.variables['latitude'][:]
-lev     = ds_uvw.variables['level'][:]
-time    = ds_uvw.variables['time'][:]
-time    = time
+    ds_uvw = []
+    for lev in kscale_levs:
+        _ds_uvw = xr.open_mfdataset(
+            os.path.join(data_dir,f'profile_{lev}/',f'{date}_20160801T0000Z_channel_profile_3hourly_{lev}_05deg.nc')
+        )
+        _ds_uvw = _ds_uvw.drop_vars(["longitude_bnds","latitude_bnds","latitude_longitude"])
+        _ds_uvw = _ds_uvw.expand_dims(dim={"level": [lev]},axis=3)
+        ds_uvw.append(_ds_uvw)
+    
+    ds_uvw = xr.concat(ds_uvw, dim="level")
+    ds_uvw = ds_uvw.transpose("time", "level", "latitude", "longitude")
+    
+    lon     = ds_uvw.variables['longitude'][:]
+    lat     = ds_uvw.variables['latitude'][:]
+    lev     = ds_uvw.variables['level'][:]
+    time    = ds_uvw.variables['time'][:]
+    
+    # print('lon lat time loaded')
+    
+    u = ds_uvw['x_wind']
+    v = ds_uvw['y_wind']
+    w = ds_uvw['upward_air_velocity']
+    print(f'kscale u v w loaded (m/s) {date}')
 
-print('lon lat time loaded')
-
-u = ds_uvw['x_wind']
-v = ds_uvw['y_wind']
-w = ds_uvw['upward_air_velocity']
-print('kscale u v w loaded (m/s)')
 #-----------------------------------------------------------------------------
+
+###############################################################################
+### Running the LoSSETT functions after having read in and prepped the data ###
+###############################################################################
+
+    # Select length scale lmax
+    Nlmax = 40
+    
+    # Dimensions
+    nt = len(time)
+    nz = len(lev)
+    ny = len(lat)
+    nx = len(lon)
+    
+    # Horizontal (dR) and vertical (dZ) grid step in m.
+    dR = abs((lon[0] - lon[1]) * 110000)
+    dZ = 400  # Suggests interp to 400m grid spacing required
+    # Horizontal size of the domain
+    lbox = abs((lon[-1] - lon[0]) * 110000)
+    
+    sys.path.append('/home/users/emg97/emgScripts/LoSSETT')
+    from CalcPartitionIncrement import CalcPartitionIncrement
+    dR, Nlmax, nphiinc, llx, lly, philsmooth, Nls = CalcPartitionIncrement(dR,Nlmax)
+    
+    from CalcDRDir_2D import CalcDRDir_2D
+    CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls,fname_str,diro,verbose=True)
+
+# print(f'Processing complete for day {day}')
+
 
 ############# For ERA data #####################
 # if era:
@@ -127,32 +166,3 @@ print('kscale u v w loaded (m/s)')
 # # Calculate w from omega for ERA5
 # w = np.divide(-omega,(rho*g))
 #==============================================================================
-
-###############################################################################
-### Running the LoSSETT functions after having read in and prepped the data ###
-###############################################################################
-
-## Select length scale lmax
-Nlmax = 5
-
-# Dimensions
-nt = len(time)
-nz = len(lev)
-ny = len(lat)
-nx = len(lon)
-
-# Horizontal (dR) and vertical (dZ) grid step in m.
-dR = abs((lon[0] - lon[1]) * 110000)
-dZ = 400  # Suggests interp to 400m grid spacing required
-# Horizontal size of the domain
-lbox = abs((lon[-1] - lon[0]) * 110000)
-
-# Call CalcPartitionIncrement
-from CalcPartitionIncrement import CalcPartitionIncrement
-dR, Nlmax, nphiinc, llx, lly, philsmooth, Nls = CalcPartitionIncrement(dR,Nlmax)
-
-#Call CalcDRDir_2D
-from CalcDRDir_2D import CalcDRDir_2D
-CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls,fname_str,verbose=True)
-
-# print(f'Processing complete for day {day}')
