@@ -60,7 +60,11 @@ def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, fname_s
             duDRt[im,:, :, :, :] = du_l_3D * dusquare
 
         # Calculate the angular average
-        duDRt = duDRt.mean(dim='angle_incs')
+        duDRt = 2*np.pi*duDRt.mean(dim='angle_incs') # note that this isn't weighted properly.
+        # (i.e. we should *really* have \delta\theta angle increments associated with each angle)
+        # Also the actual calculation is \int_0^2\pi duDRt d\theta \approx \sum_0^2\pi duDRt_i \delta\theta_i
+        # \approx \delta\theta \sum_i duDRt_i if \delta_\theta_i can be approximated as constant.
+        # We thus need to normalize the sum by 2 \pi (since \delta \theta \approx 2 \pi / numnber of increments)
 
         print(f'Average {ic} done')
         SulocDR[ic, :, :, :, :] = duDRt
@@ -68,7 +72,7 @@ def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, fname_s
         print(f"\nMemory usage at filter integration step: {memory_use:5g} GB")
         # Computation of the average DR
         # DeltaUcubemoy[ic, :] = np.mean(duDRt, axis=(0, 1, 2))
-        # ^ EMG 29.7.24 14:42 - got stuck here but I don't thiunk we ever use it
+        # ^ EMG 29.7.24 14:42 - got stuck here but I don't think we ever use it
         # Error message: ValueError: could not broadcast input array from shape (480,) into shape (62,)
 
     # save integrand after angular average
