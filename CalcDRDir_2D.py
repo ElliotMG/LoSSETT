@@ -4,6 +4,8 @@ import xarray as xr
 import os
 import psutil
 
+from filtering import kernels
+
 def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, fname_str, diro, verbose=False):
     # Load the fields and pad them with symmetric conditions.
     # Note 29.7.24: commented out the padding becuase should be handled in np.roll
@@ -68,6 +70,10 @@ def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, fname_s
         # DeltaUcubemoy[ic, :] = np.mean(duDRt, axis=(0, 1, 2))
         # ^ EMG 29.7.24 14:42 - got stuck here but I don't thiunk we ever use it
         # Error message: ValueError: could not broadcast input array from shape (480,) into shape (62,)
+
+    # save integrand after angular average
+    print("\nSaving integrand after angular average")
+    SulocDR.to_netcdf(os.path.join(diro,f'DR_integrand_Nlmax{Nlmax}_{fname_str}.nc'))
 
     # 1) Calcul de Duchon Robert [DYN] (calculation of DR DYN)
 
