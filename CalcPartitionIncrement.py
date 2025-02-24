@@ -67,7 +67,6 @@ def CalcPartitionIncrement(dR,Nlmax,verbose=False):
     ntm = np.max(nphiinc)
 
     # Calculate the smoothing function
-
     deps = dR
     epsl = np.arange(dR, Nlmax*dR+deps, deps)
     Nls = len(epsl)
