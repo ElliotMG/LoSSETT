@@ -1,0 +1,111 @@
+import sys
+import xarray as xr
+import numpy as np
+import matplotlib.pyplot as plt
+# local imports
+from filtering.kernels import filter_kernel
+from CalcPartitionIncrement import CalcPartitionIncrement
+
+radius_earth = 6.371e6
+
+def get_integration_kernels(
+        r,
+        length_scales,
+        normalization="sphere",
+        sphere_radius=radius_earth,
+        return_deriv=True
+):
+    """
+    Required inputs:
+     - r: sampling points in r-space
+     - length_scales: array of length scales
+    Optional inputs:
+     - 
+    """
+    # TO-DO: check for units consistency between r, length_scales and sphere_radius!
+
+    # TO-DO: check that max length_scale < max r / 2
+
+    # TO-DO: check that max length_scale < \pi R / 2 if normalization == "sphere"
+
+    G = []
+    dG_dr = []
+    for length_scale in length_scales:
+        # compute normalized dG/dr
+        kernel, deriv = filter_kernel(
+            length_scale,
+            r,
+            return_derivative=True,
+            normalization="sphere",
+            sphere_radius=radius_earth
+        )
+        kernel = xr.DataArray(
+            kernel,
+            coords = {"r": r,"length_scale": length_scale},
+            dims = "r"
+        )
+        deriv = xr.DataArray(
+            deriv,
+            coords = {"r": r,"length_scale": length_scale},
+            dims = "r"
+        )
+        G.append(kernel)
+        dG_dr.append(deriv)
+
+    
+    # concatenate into a single xr.DataArray
+    G = xr.concat(G,dim="length_scale")
+    dG_dr = xr.concat(dG_dr,dim="length_scale")
+    G = G.rename("filter_kernel")
+    dG_dr = dG_dr.rename("r-derivative_of_filter_kernel")
+
+    if return_deriv:
+        return G, dG_dr;
+    else:
+        return G;
+
+if __name__ == "__main__":
+    delta_r = 0.5
+    deg2m = 110000
+    radius_earth = 6.371e6
+    r = np.arange(0,180,delta_r) #spacing in degrees
+    r *= deg2m # approx. conversion to m
+    l_max = 2e6 # 2000km
+    length_scales = np.arange(0, l_max, delta_r*deg2m)[1:]
+    print(length_scales)
+
+    G, dG_dr = get_integration_kernels(
+        r,
+        length_scales,
+        normalization="sphere",
+        sphere_radius=radius_earth,
+        return_deriv=True
+    )
+
+    print("\n\n\n", (2*np.pi*radius_earth*G*np.sin(G.r/radius_earth)).integrate("r"))
+
+    fig,axes = plt.subplots(nrows=1,ncols=2)
+    for nl in range(len(length_scales)):#[-2:]:
+        axes[0].plot(r,dG_dr.isel(length_scale=nl))
+        axes[1].plot(r,G.isel(length_scale=nl))
+        axes[1].axvline(length_scales[nl],linestyle=":")
+    axes[0].set_xlim([0,4e6])
+    axes[1].set_xlim([0,4e6])
+    plt.show()
+    plt.close()
+    sys.exit(1)
+    
+    Nlmax = len(length_scales)
+    dR, Nlmax, nphiinc, llx, lly, philsmooth, Nls = CalcPartitionIncrement(delta_r*deg2m,Nlmax)
+
+    print(np.shape(philsmooth))
+
+    fig,axes = plt.subplots(nrows=1,ncols=2)
+    for nl in range(Nlmax):
+        axes[0].plot(philsmooth[:,nl])
+        axes[1].plot(philsmooth[nl,:])
+    axes[0].set_ylim([0,100])
+    axes[1].set_ylim([0,100])
+    plt.show()
+    plt.close()
+

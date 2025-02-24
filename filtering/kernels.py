@@ -16,11 +16,11 @@ def derivative_of_standard_mollifier(x, length_scale=1,normalization=1):
         0
     );
 
-def filter_kernel(length_scale,r,npts=101,return_derivative=True):
+def filter_kernel(length_scale,r,npts=1e4,return_derivative=True,normalization="2D",sphere_radius=6.371e6):
     """
     Compute standard mollifier with length scale \ell, defined by:
         G_\ell(r) = N_\ell \exp( -1 / (1 - (r / 2\ell)^2) )
-    with N_\ell determined by the constraint \int_0^\infty dr G_\ell(r) = 1.
+    with N_\ell determined by the constraint \int_D d^d r G_\ell(r) = 1.
 
     Optionally compute also its derivative:
                                      r                 1                /        - 1          \
@@ -31,15 +31,32 @@ def filter_kernel(length_scale,r,npts=101,return_derivative=True):
       - r: sampling points in r-space
 
     Optional inputs:
-      - npts: number of points to compute normalization factor
+      - npts: number of points to compute normalization factor (default 1e4). Currently not used; instead normalization
+              is computed using user-provided sampling points r.
       - return_derivative: boolean, switch to determine whether to also compute and return derivative.
+      - normalization: how to normalize. Options are 2D Euclidean, 2D sphere, 3D Euclidean (not yet implemented). Default 2D
+      - sphere_radius: Float. Radius of 2-sphere, used for normalization. Default 6.371e6 (Earth's radius in m).
     """
-    
-    return 0;
+    _kernel = standard_mollifier(r,length_scale=length_scale)
+    if normalization == "2D":
+        integral = 2*np.pi*np.trapz(r*_kernel,x=r)
+    elif normalization == "sphere":
+        integral = 2*np.pi*np.trapz(sphere_radius*np.sin(r/sphere_radius)*_kernel,x=r)
+    elif normalization == "3D":
+        integral = 4*np.pi*np.trapz((r**2)*_kernel,x=r)
+    norm = 1 / integral
+
+    if not return_derivative:
+        return standard_mollifier(r,length_scale=length_scale,normalization=norm);
+    else:
+        return standard_mollifier(r,length_scale=length_scale,normalization=norm),\
+            derivative_of_standard_mollifier(r,length_scale=length_scale,normalization=norm);
 
 if __name__ == "__main__":
     x = np.arange(0,100,0.01)
     print(x)
+    length_scales = [1,2.5,5,10,20,40,50]
+    sin_scale = 2*100/np.pi
     colours = ["k","C0","C1","C2","C3","C4","C5"]
     fig,axes = plt.subplots(
         nrows=1,
@@ -47,8 +64,6 @@ if __name__ == "__main__":
         figsize=(10,5),
         #sharex=True
     )
-    length_scales = [1,2.5,5,10,20,40,50]
-    sin_scale = 2*100/np.pi
     norms = []
     sin_norms = []
     for il, length_scale in enumerate(length_scales):
@@ -116,6 +131,22 @@ if __name__ == "__main__":
     axes[1].set_xlabel("$\ell$")
     plt.savefig("standard_mollifier_normalization.png")
     plt.show()
+
+    # check automatic normalization
+    fig = plt.figure()
+    filter_kernel, derivative = filter_kernel(
+        length_scales[-1],
+        x,
+        npts=1e4,
+        return_derivative=True,
+        normalization="2D",
+        sphere_radius=sin_scale
+    )
+    plt.plot(x,filter_kernel)
+    plt.plot(x,kernel,linestyle=":")
+    plt.plot(x,derivative)
+    plt.show()
+    plt.close()
 
     fig,axes = plt.subplots(
         nrows=1,
