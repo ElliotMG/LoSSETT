@@ -51,7 +51,6 @@ def get_integration_kernels(
         )
         G.append(kernel)
         dG_dr.append(deriv)
-
     
     # concatenate into a single xr.DataArray
     G = xr.concat(G,dim="length_scale")
@@ -83,29 +82,4 @@ if __name__ == "__main__":
     )
 
     print("\n\n\n", (2*np.pi*radius_earth*G*np.sin(G.r/radius_earth)).integrate("r"))
-
-    fig,axes = plt.subplots(nrows=1,ncols=2)
-    for nl in range(len(length_scales)):#[-2:]:
-        axes[0].plot(r,dG_dr.isel(length_scale=nl))
-        axes[1].plot(r,G.isel(length_scale=nl))
-        axes[1].axvline(length_scales[nl],linestyle=":")
-    axes[0].set_xlim([0,4e6])
-    axes[1].set_xlim([0,4e6])
-    plt.show()
-    plt.close()
-    sys.exit(1)
-    
-    Nlmax = len(length_scales)
-    dR, Nlmax, nphiinc, llx, lly, philsmooth, Nls = CalcPartitionIncrement(delta_r*deg2m,Nlmax)
-
-    print(np.shape(philsmooth))
-
-    fig,axes = plt.subplots(nrows=1,ncols=2)
-    for nl in range(Nlmax):
-        axes[0].plot(philsmooth[:,nl])
-        axes[1].plot(philsmooth[nl,:])
-    axes[0].set_ylim([0,100])
-    axes[1].set_ylim([0,100])
-    plt.show()
-    plt.close()
 
