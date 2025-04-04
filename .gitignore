@@ -1,6 +1,12 @@
 # backup files
 *~
 *#
+# temporary/log files
+*.log
+*.out
+*.err
+*.e
+*.o
 # data files
 *.nc
 # images and PDFs
