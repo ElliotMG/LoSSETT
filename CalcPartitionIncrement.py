@@ -42,7 +42,6 @@ def CalcPartitionIncrement(dR,Nlmax,verbose=False):
             llxt[ibase] = np.single(nlx)
             llyt[ibase] = np.single(nly)
 
-
     llmov = np.zeros_like(ld)
     nphiinc = np.zeros_like(ld)
     lur = np.sqrt((np.array(llxt)*dR)**2 + (np.array(llyt)*dR)**2)

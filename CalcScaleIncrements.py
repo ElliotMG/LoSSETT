@@ -77,7 +77,8 @@ def calc_scale_increments(
 def calc_increment_integrand(
         field, scale_incs, function, delta_x, delta_y,
         xdim, ydim, xbounds, ybounds, x_bound_field=np.nan,
-        y_bound_field=np.nan, precision=1e-10, conv_fac=1.0
+        y_bound_field=np.nan, precision=1e-10, conv_fac=1.0,
+        verbose=False
 ):
     import psutil
     pid = os.getpid()
@@ -141,6 +142,9 @@ def calc_increment_integrand(
         phi_integrand = xr.concat(phi_integrand,"angle")
         phi_integral = phi_integrand.integrate("angle").compute()
         r_integrand.append(phi_integral)
+        if verbose:
+            print("\n", phi_integrand)
+            print("\n", phi_integral)
 
         memory_use = python_process.memory_info()[0]/(10**9) # RAM usage in GB
         print(f"\nCurrent memory usage: {memory_use:5g} GB")
@@ -339,23 +343,24 @@ if __name__ == "__main__":
     OUT_DIR = "/gws/nopw/j04/kscale/USERS/dship/LoSSETT_out/"
     PLOT_DIR = "/home/users/dship/python/upscale/plots/"
 
-    day = int(sys.argv[1])
-
     # should take all of these from command line or an options file
     # simulation specification
-    simid = "CTC5RAL"
+    simid = sys.argv[1]
     tsteps_per_day = 8
     lon_bound_field = "periodic"
     lat_bound_field = np.nan
 
+    # day of simulation
+    day = int(sys.argv[2])
+
     # calculation specification
-    max_r_deg = 40.0
+    max_r_deg = 5.0
     tsteps = 8
-    tchunks = 2
+    tchunks = 8
     prec = 1e-10
 
     # open data
-    ds_u_3D_RAL = xr.open_mfdataset(
+    ds_u_3D = xr.open_mfdataset(
         [
             os.path.join(DATA_DIR,fname) for fname in [
                 f"u_DS_3D_{simid}.nc",
@@ -367,28 +372,28 @@ if __name__ == "__main__":
     )
 
     # subset single day
-    ds_u_3D_RAL = ds_u_3D_RAL.isel(time = slice((day-1)*tsteps_per_day,day*tsteps_per_day))
+    ds_u_3D = ds_u_3D.isel(time = slice((day-1)*tsteps_per_day,day*tsteps_per_day))
 
     # get start date + time
-    start = pd.Timestamp(ds_u_3D_RAL.time[0].values).to_pydatetime()
+    start = pd.Timestamp(ds_u_3D.time[0].values).to_pydatetime()
     startdate = f"{start.year:04d}-{start.month:02d}-{start.day:02d}"
 
     print(f"\n\n\nCalculating {simid} DR indicator for {startdate}")
 
     # subset time; chunk time
-    ds_u_3D_RAL = ds_u_3D_RAL.rename(
+    ds_u_3D = ds_u_3D.rename(
         {
             "upward_air_velocity":"w",
             "x_wind":"u",
             "y_wind":"v"
         }
     ).isel(time=slice(0,tsteps)).chunk(chunks={"time":tchunks})
-    print("\nInput data:\n",ds_u_3D_RAL)
+    print("\nInput data:\n",ds_u_3D)
 
     # setup x-y coords, bounds, grid spacings
-    lon = ds_u_3D_RAL.longitude
+    lon = ds_u_3D.longitude
     lon_bounds = np.array([lon[0].values,lon[-1].values])
-    lat = ds_u_3D_RAL.latitude
+    lat = ds_u_3D.latitude
     lat_bounds = np.array([lat[0].values,lat[-1].values])
     
     delta_lon = np.max(np.diff(lon))
@@ -411,16 +416,16 @@ if __name__ == "__main__":
 
     # compute delta u cubed integrated over angles for all |r|
     print("\n\n\nCalculating angular integral for r={r[0].values/1000:.4g} km to r={r[-1].values/1000:.4g}")
-    delta_u_cubed_RAL = calc_increment_integrand(
-        ds_u_3D_RAL, scale_incs_m, calc_delta_u_cubed, delta_lon_m, delta_lat_m,
+    delta_u_cubed = calc_increment_integrand(
+        ds_u_3D, scale_incs_m, calc_delta_u_cubed, delta_lon_m, delta_lat_m,
         xdim="longitude", ydim="latitude", xbounds=lon_m_bounds, ybounds=lat_m_bounds,
         x_bound_field=lon_bound_field, y_bound_field=lat_bound_field, precision=prec,
-        conv_fac=deg_to_m
+        conv_fac=deg_to_m, verbose=True
     )
     # add option to save integrand
 
     # calculate scale-space integral given integrand, length scales, geometry specification
-    integrand = delta_u_cubed_RAL    
+    integrand = delta_u_cubed
     r = integrand.r
     # specify length scales -- should probably be an if statement here to allow the user
     # to specify scales if desired.
