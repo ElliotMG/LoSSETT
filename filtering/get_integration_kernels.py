@@ -3,8 +3,7 @@ import xarray as xr
 import numpy as np
 import matplotlib.pyplot as plt
 # local imports
-from filtering.kernels import filter_kernel
-from CalcPartitionIncrement import CalcPartitionIncrement
+from .kernels import filter_kernel
 
 radius_earth = 6.371e6
 

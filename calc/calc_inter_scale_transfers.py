@@ -7,9 +7,8 @@ import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 import cartopy as cpy
-
-from test_kernels import get_integration_kernels
-from preprocessing import preprocess_kscale
+# local imports
+from ..filtering.get_integration_kernels import get_integration_kernels
 
 radius_earth = 6.371e6 # radius of Earth in m
 deg_to_m = 110000.0 # conversion of latitudinal degrees to m
@@ -58,7 +57,7 @@ def calc_inter_scale_energy_transfer_kinetic(
     r = scale_incs.r
 
     # compute delta u cubed integrated over angles for all |r|
-    print("\n\n\nCalculating angular integral for r={r[0].values/1000:.4g} km to r={r[-1].values/1000:.4g}")
+    print(f"\n\n\nCalculating angular integral for r={r[0].values/1000:.4g} km to r={r[-1].values/1000:.4g}")
     delta_u_cubed = calc_increment_integrand(
         ds_u_3D, scale_incs, calc_delta_u_cubed, delta_x, delta_y,
         xdim=x_coord_name, ydim=y_coord_name, xbounds=x_bounds, ybounds=y_bounds,
@@ -410,64 +409,3 @@ def plot_scale_increments(scale_incs, Rsel=[10,20,40], show=False):
         plt.show()
     plt.close()
     return 0;
-
-if __name__ == "__main__":
-    OUT_DIR = "/gws/nopw/j04/kscale/USERS/dship/LoSSETT_out/"
-
-    # should take all of these from command line or an options file
-    # simulation specification
-    simid = sys.argv[1]
-    tsteps_per_day = 8
-    lon_bound_field = "periodic"
-    lat_bound_field = np.nan
-
-    # day of simulation
-    day = int(sys.argv[2])
-
-    # calculation specification
-    max_r_deg = 5.0
-    tsteps = 8
-    tchunks = 8
-    prec = 1e-10
-
-    control_dict = {
-        "max_r": max_r_deg,
-        "max_r_units": "deg",
-        "angle_precision": prec,
-        "x_coord_name": "longitude",
-        "x_coord_units": "deg",
-        "x_coord_boundary": lon_bound_field,
-        "y_coord_name": "latitude",
-        "y_coord_units": "deg",
-        "y_coord_boundary": lat_bound_field
-    }
-
-    # open data
-    ds_u_3D = preprocess_kscale.load_kscale(simid,"DS","0p5deg")
-
-    # subset single day
-    ds_u_3D = ds_u_3D.isel(time = slice((day-1)*tsteps_per_day,day*tsteps_per_day))
-
-    # get start date + time
-    date = pd.Timestamp(ds_u_3D.time[0].values).to_pydatetime()
-    date_str = f"{date.year:04d}-{date.month:02d}-{date.day:02d}"
-
-    print(f"\n\n\nCalculating {simid} DR indicator for {date_str}")
-
-    # subset time; chunk time
-    ds_u_3D = ds_u_3D.isel(time=slice(0,tsteps)).chunk(chunks={"time":tchunks})
-    print("\nInput data:\n",ds_u_3D)
-
-    # calculate kinetic DR indicator
-    DR_indicator = calc_inter_scale_energy_transfer_kinetic(
-        ds_u_3D, control_dict
-    )
-
-    # save to NetCDF
-    n_l = len(DR_indicator.length_scale)
-    fpath = os.path.join(OUT_DIR, f"inter_scale_energy_transfer_kinetic_{simid}_Nl_{n_l}_{date_str}.nc")
-    print(f"\n{DR_indicator.name}:\n",DR_indicator)
-    print(f"\nSaving {DR_indicator.name} to NetCDF at location {fpath}.")
-    DR_indicator.to_netcdf(fpath)
-
-    print("\n\n\nEND.")
