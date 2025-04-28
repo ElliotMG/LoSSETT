@@ -16,6 +16,7 @@
 *.png
 *.md
 *.jpg
+*.txt
 # Checkpoints and caches
 .ipynb_checkpoints/
 __pycache__/

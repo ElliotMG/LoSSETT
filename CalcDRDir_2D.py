@@ -155,7 +155,7 @@ def CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls, fname_s
         print(f"\nMemory usage at end of loop over scales: {memory_use:5g} GB")
         
         return DRdir2dt;
-    
+
     # DRdir.max
 # if __name__ == "__main__":
 #     dR      = np.double(sys.argv[1])

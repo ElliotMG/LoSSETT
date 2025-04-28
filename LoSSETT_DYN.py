@@ -70,6 +70,18 @@ for current_date in dates:
     u = ds_uvw['x_wind']
     v = ds_uvw['y_wind']
     w = ds_uvw['upward_air_velocity']
+    # masku = u > 100
+    # maskv = v > 100
+    # maskw = w > 100
+
+    # u = u.where(~masku, np.nan)
+    # v = u.where(~maskv, np.nan)
+    # w = u.where(~maskw, np.nan)
+
+    # Masking 1e37 FillValues at 
+    for var in [u, v, w]:
+        var = var.where(var <= 100, np.nan)
+    
     print(f'kscale u v w loaded (m/s) {date}')
 
 #-----------------------------------------------------------------------------
@@ -78,9 +90,9 @@ for current_date in dates:
 ### Running the LoSSETT functions after having read in and prepped the data ###
 ###############################################################################
 
-    # Select length scale lmax
+    # Select length scale lmax (to be input by user in command line)
     Nlmax = int(sys.argv[1])#40
-    
+
     # Dimensions
     nt = len(time)
     nz = len(lev)
