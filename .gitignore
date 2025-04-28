@@ -1,5 +1,13 @@
 # backup files
 *~
+# temporary files
+*.tmp
+# log files
+*.o
+*.e
+*.out
+*.err
+*.log
 # images and PDFs
 *.pdf
 *.svg
