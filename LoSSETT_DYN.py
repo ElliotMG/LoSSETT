@@ -31,10 +31,11 @@ start_date = dt.date(2016, 8, 1)
 ndays=1
 end_date = dt.date(2016, 8, 2)
 # if kscale:
-kscale_levs = [100,150,200,250,300,400,500,600,700,850,925,1000]
+kscale_levs = [200,500]#[100,150,200,250,300,400,500,600,700,850,925,1000]
 # Variable read in for K-Scale
 data_dir = '/gws/nopw/j04/kscale/DATA/outdir_20160801T0000Z/DMn1280GAL9/channel_n2560_RAL3p2/'
-diro = '/gws/nopw/j04/kscale/USERS/emg/data/LoSSETT_out/channel_n2560_RAL3p2/'
+#diro = '/gws/nopw/j04/kscale/USERS/emg/data/LoSSETT_out/channel_n2560_RAL3p2/'
+diro = '/gws/nopw/j04/kscale/USERS/dship/LoSSETT_out/channel_n2560_RAL3p2/'
 
 dates = [start_date+dt.timedelta(i) for i in range(ndays)]
 
@@ -78,7 +79,7 @@ for current_date in dates:
 ###############################################################################
 
     # Select length scale lmax
-    Nlmax = 40
+    Nlmax = int(sys.argv[1])#40
     
     # Dimensions
     nt = len(time)
@@ -92,11 +93,11 @@ for current_date in dates:
     # Horizontal size of the domain
     lbox = abs((lon[-1] - lon[0]) * 110000)
     
-    sys.path.append('/home/users/emg97/emgScripts/LoSSETT')
-    from CalcPartitionIncrement import CalcPartitionIncrement
+    #sys.path.append('/home/users/emg97/emgScripts/LoSSETT') # shouldn't be required!
+    from CalcPartitionIncrement import CalcPartitionIncrement # should be in file preamble
     dR, Nlmax, nphiinc, llx, lly, philsmooth, Nls = CalcPartitionIncrement(dR,Nlmax)
     
-    from CalcDRDir_2D import CalcDRDir_2D
+    from CalcDRDir_2D import CalcDRDir_2D # should be in file preamble
     CalcDRDir_2D(dR, Nlmax, u, v, w, nphiinc, llx, lly, philsmooth, Nls,fname_str,diro,verbose=True)
 
 # print(f'Processing complete for day {day}')

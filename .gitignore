@@ -1,18 +1,21 @@
 # backup files
 *~
-# temporary files
+*#
+# temporary/log files
 *.tmp
-# log files
-*.o
-*.e
+*.log
 *.out
 *.err
-*.log
+*.e
+*.o
+# data files
+*.nc
 # images and PDFs
 *.pdf
 *.svg
 *.png
 *.md
+*.jpg
 # Checkpoints and caches
 .ipynb_checkpoints/
 __pycache__/
