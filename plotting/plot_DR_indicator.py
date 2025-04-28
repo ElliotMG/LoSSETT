@@ -34,7 +34,7 @@ def plot_DR_indicator_lon_lat(
             colour = "C0"
         
         pc = ax.pcolormesh(
-            x, y, DR_plot,
+            x, y, DR_plot.transpose(y_coord,x_coord),
             cmap="RdBu_r", vmin=-mag, vmax=mag
         )
         ax.coastlines()
@@ -84,7 +84,7 @@ def plot_DR_indicator_lon_pressure(
             length_scale=ell, method="nearest"
         )        
         pc = ax.pcolormesh(
-            x, z, DR_plot,
+            x, z, DR_plot.transpose(z_coord,x_coord),
             cmap="RdBu_r", vmin=-mag, vmax=mag
         )
         ax.grid()
@@ -111,35 +111,159 @@ def plot_DR_indicator_lon_pressure(
         plt.show()
     return 0;
 
+def plot_histogram_vs_coord_contour(
+        var, coord, bins, var_name=None, var_units=None, coord_name=None,coord_units=None,
+        title=None, hist_norm=None, x_logscale=False, invert_yaxis=False
+):
+    # setup
+    if var_name is None:
+        var_name = var.name
+    if var_units is None:
+        var_units = var.attrs["units"]
+    if coord_name is None:
+        coord_name = coord.name
+    if coord_units is None:
+        coord_units = coord.attrs["units"]
+
+    var = var.sel({coord.name:coord},method="nearest")
+    dims=list(var.dims)
+    mean_dims = dims
+    mean_dims.remove(coord_name)
+        
+    hist = []
+    for coord_value in coord:
+        _hist, _bins = np.histogram(
+            var.sel({coord_name:coord_value}).data,
+            bins=bins
+        )
+        hist.append(_hist)
+        
+    hist = np.array(hist)
+    bins_reduced = (bins[1:] + bins[:-1]) / 2
+
+    fig, axes = plt.subplots(nrows=1,ncols=1,figsize=(12,8))
+    pc = plt.pcolormesh(bins_reduced, coord, hist, norm=hist_norm)
+    plt.plot(var.mean(dim=mean_dims), coord, color="C1")
+    plt.xlabel(f"{var_name} [{var_units}]")
+    plt.ylabel(f"{coord_name} [{coord_units}]")
+    plt.colorbar(pc, label="frequency")
+    if title is not None:
+        plt.title(title)
+    if x_logscale:
+        plt.xscale("log")
+    if invert_yaxis:
+        plt.gca().invert_yaxis()
+    
+    return fig; # should really return Axes object?
+
+def plot_histogram_vs_coord_line(
+        var, coord, bins, var_name=None, var_units=None, coord_name=None, coord_units=None,
+        title=None, colours=None # add normalization option
+):
+    # setup
+    if var_name is None:
+        var_name = var.name
+    if var_units is None:
+        var_units = var.attrs["units"]
+    if coord_name is None:
+        coord_name = coord.name
+    if coord_units is None:
+        coord_units = coord.attrs["units"]
+
+    var = var.sel({coord.name:coord},method="nearest")
+    dims=list(var.dims)
+    mean_dims = dims
+    mean_dims.remove(coord_name)
+        
+    hist = []
+    for coord_value in coord:
+        _hist, _bins = np.histogram(
+            var.sel({coord_name:coord_value}).data,
+            bins=bins
+        )
+        hist.append(_hist)
+
+    bins_reduced = (bins[1:] + bins[:-1]) / 2
+    hist=xr.DataArray(
+        data=np.array(hist),
+        dims=[coord_name,"bins"],
+        coords={coord_name:coord.values,"bins":bins_reduced}
+    )
+    tot = hist.sum(dim="bins")
+
+    hist = hist/tot
+
+    fig, axes = plt.subplots(nrows=1,ncols=1,figsize=(12,8))
+    for ic, coord_value in enumerate(coord):
+        plt.plot(
+            hist.bins, hist.sel({coord_name:coord_value},method="nearest"), color=colours[ic],
+            label=f"{coord_value:.4g} {coord_units}", marker=".",
+            linestyle=""
+        )
+    plt.xlabel(f"{var_name} [{var_units}]")
+    plt.ylabel(f"frequency density") # chould really divide by total number to give PDF
+    plt.legend(loc="best")
+    plt.yscale("log")
+    plt.grid()
+    if title is not None:
+        plt.title(title)
+    
+    return fig; # should really return Axes object?
+
 if __name__ == "__main__":
     DATA_DIR = "/gws/nopw/j04/kscale/USERS/dship/LoSSETT_out/"
     PLOT_DIR = "/home/users/dship/python/upscale/plots/"
 
     # plotting switches
-    plot_lon_pressure_xsections = False#True
-    plot_lon_lat_maps = True
+    plot_lon_pressure_xsections = True
+    plot_lon_lat_maps = False
     subset_scales=True
-    show=False
+    show=True #False
     
     # simulation specification
-    simid = sys.argv[1] #"CTC5RAL"
+    simid = sys.argv[1]
+
+    # should write postprocessing scripts to load kscale, ERA5, NextGEMS etc. data
 
     # DR indicator specification
     n_scales = 32
     tsteps = 8
-    startdate = sys.argv[2] #"2016-08-01"
+
+    # date
+    startdate = sys.argv[2]
 
     # load DR indicator
-    DR_indicator = xr.open_dataset(
-        os.path.join(DATA_DIR, f"DR_test_{simid}_Nl_{n_scales}_{startdate}_t0-{tsteps-1}.nc")
-    )["DR_indicator"]
+    if simid == "CTC5GAL" or simid == "CTC5RAL":
+        DR_indicator = xr.open_dataset(
+            os.path.join(
+                DATA_DIR,
+                f"DR_test_{simid}_Nl_{n_scales}_{startdate}_t0-{tsteps-1}.nc"
+            )
+        )["DR_indicator"]
+    elif simid == "ERA5":
+        DR_indicator = xr.open_dataset(
+            os.path.join(
+                DATA_DIR,
+                "ERA5",
+                f"inter_scale_energy_transfer_kinetic_ERA5_0p5deg_Nl_31_{startdate}.nc"
+            )
+        )["DR_indicator"]
+    else:
+        print(f"\nERROR: loading for simid = {simid} not implemented yet!")
+        sys.exit(1)
+
+    # ensure correct ordering of dimensions
+    DR_indicator = DR_indicator.transpose(
+        "length_scale","time","longitude","latitude","pressure"
+    )
+    print("\n",DR_indicator)
     
     # get start datetime
     start = pd.Timestamp(DR_indicator.time[0].values).to_pydatetime()
 
     # define length scales for plotting
     chosen_scales = DR_indicator.length_scale.values[:20]
-    print(chosen_scales)
+    print("\n",chosen_scales)
     scale_subset_str = ""
 
     # plotting options

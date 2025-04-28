@@ -29,9 +29,10 @@ if __name__ == "__main__":
     Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
     # calculation specification
-    max_r_deg = 40.0 # should be command line option!
-    tsteps = 8
-    tchunks = 2
+    max_r_deg = 32.5 # should be command line option!
+    tsteps = 4
+    tchunks = 4
+    pchunks = 12
     prec = 1e-10
 
     control_dict = {
@@ -62,7 +63,7 @@ if __name__ == "__main__":
     print(f"\n\n\nCalculating ERA5 DR indicator for {date_str}")
 
     # subset time; chunk time
-    ds_u_3D = ds_u_3D.isel(time=slice(0,tsteps)).chunk(chunks={"time":tchunks})
+    ds_u_3D = ds_u_3D.isel(time=slice(0,tsteps)).chunk(chunks={"time":tchunks,"pressure":pchunks})
     print("\nInput data:\n",ds_u_3D)
 
     # calculate kinetic DR indicator
