@@ -13,7 +13,6 @@
 # images and PDFs
 *.pdf
 *.svg
-*.png
 *.md
 *.jpg
 *.txt
