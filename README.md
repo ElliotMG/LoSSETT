@@ -24,7 +24,7 @@ This directory contains utilities for filtering and integration:
 ### `/plotting/`
 Contains various example plotting `.py` scripts and `.ipynb` notebooks.
 
-### `/preprocessing/'
+### `/preprocessing/`
 Python scripts for pre-procesing the data to match the specific cases in **`/control`**.
 
 ## Prerequisites
