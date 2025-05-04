@@ -37,7 +37,7 @@ if __name__ == "__main__":
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour%12)*12:02d}"
 
     # calculation specification
-    max_r_deg = 0.2 # should be command line option!
+    max_r_deg = 0.4 # should be command line option!
     tsteps = 1
     tchunks = 1
     pchunks = 1

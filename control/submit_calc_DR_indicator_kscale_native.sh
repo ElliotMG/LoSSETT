@@ -4,7 +4,7 @@
 #SBATCH --qos=debug #standard                          # quality of service
 #SBATCH --array=[1]                          # job array (item identifier is %a)
 #SBATCH --time=00:30:00                         # walltime
-#SBATCH --mem=50G                               # total memory (can also specify per-node, or per-core)
+#SBATCH --mem=72G                               # total memory (can also specify per-node, or per-core)
 #SBATCH --job-name="calc_DR_kscale_native"         # job name
 #SBATCH --output=/home/users/dship/log/log_calc_DR_indicator_kscale_native_%a.out      # output file
 #SBATCH --error=/home/users/dship/log/log_calc_DR_indicator_kscale_native_%a.err       # error file
@@ -12,7 +12,7 @@
 
 SCRIPTPATH="/home/users/dship/python"
 
-echo "Start Job $SLURM_ARRAY_TASK_ID on $HOSTNAME"  # Display job start information
+echo "Start Job $SLURM_JOB_ID, array $SLURM_ARRAY_TASK_ID on $HOSTNAME"  # Display job start information
 
 cd $SCRIPTPATH
 
