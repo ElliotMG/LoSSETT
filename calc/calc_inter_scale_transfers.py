@@ -64,7 +64,7 @@ def calc_inter_scale_energy_transfer_kinetic(
         x_bound_field=x_coord_boundary, y_bound_field=y_coord_boundary, precision=precision,
         verbose=True
     )
-    delta_u_cubed = delta_u_cubed.transpose("r","time","longitude","latitude","pressure")
+    delta_u_cubed = delta_u_cubed.transpose("r","time",x_coord_name,y_coord_name,"pressure")
     if x_coord_units == "deg":
         delta_u_cubed = delta_u_cubed.assign_coords(
             {x_coord_name:_x.values,y_coord_name:_y.values}

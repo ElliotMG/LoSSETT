@@ -29,9 +29,9 @@ if __name__ == "__main__":
     Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
     # calculation specification
-    max_r_deg = 32.5 # should be command line option!
-    tsteps = 4
-    tchunks = 4
+    max_r_deg = 33.0 # should be command line option!
+    tsteps = 8
+    tchunks = 8
     pchunks = 12
     prec = 1e-10
 

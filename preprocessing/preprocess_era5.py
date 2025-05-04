@@ -55,7 +55,7 @@ def setup_vars_DW(return_dates=False):
     else:
         return var_names, yearmonths, data_dir;
 
-def setup_vars_yearmonth(year,month,return_dates=False,sampling="3h"):
+def setup_vars_yearmonth(year,month,return_dates=False,sampling="3h",moist=False):
     # 1. data directory
     data_dir = f"/gws/nopw/j04/kscale/USERS/dship/ERA5/{sampling}ourly/"
 
@@ -65,7 +65,10 @@ def setup_vars_yearmonth(year,month,return_dates=False,sampling="3h"):
     w_name = "vertical_velocity"
     t_name = "temperature"
     q_name = "specific_humidity"
-    var_names = [u_name, v_name, w_name, t_name, q_name]
+    if moist:
+        var_names = [u_name, v_name, w_name, t_name, q_name]
+    else:
+        var_names = [u_name, v_name, w_name, t_name]
 
     # 3. define date range
     start_date = dt.date(year,month,1)
@@ -118,6 +121,7 @@ def load_era5(var_names, yearmonths, data_dir, sampling="3h"):
     ds.coords["longitude"] = (ds.coords["longitude"] + 180) % 360 - 180
     ds = ds.sortby(ds.longitude)
     ds.longitude.attrs = lon_attrs
+    ds = ds.sortby(ds.latitude) # has no effect if lat already correctly oriented
 
     # Calculate density (should probably include moisture! At least optionally)
     gas_const_dry_air = 287.05
@@ -132,7 +136,7 @@ def load_era5(var_names, yearmonths, data_dir, sampling="3h"):
     ds = ds.rename({"w":"omega"})
     ds = ds.assign(w=np.divide(-ds.omega,(rho*g)))
     ds.w.attrs["units"] = "m s-1" # should add other attribs from omega
-    ds = ds.drop_vars(["omega","t","q"])
+    ds = ds.drop_vars(["omega","t"])
 
     # 9. Transpose
     ds = ds.transpose("time","pressure","latitude","longitude")
