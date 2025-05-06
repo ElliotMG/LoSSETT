@@ -215,8 +215,8 @@ if __name__ == "__main__":
     PLOT_DIR = "/home/users/dship/python/upscale/plots/"
 
     # plotting switches
-    plot_lon_pressure_xsections = True
-    plot_lon_lat_maps = False
+    plot_lon_pressure_xsections = False#True
+    plot_lon_lat_maps = True
     subset_scales=True
     show=True #False
     
@@ -246,6 +246,13 @@ if __name__ == "__main__":
                 DATA_DIR,
                 "ERA5",
                 f"inter_scale_energy_transfer_kinetic_ERA5_0p5deg_Nl_31_{startdate}.nc"
+            )
+        )["DR_indicator"]
+    elif simid == "DYAMOND3_n2560RAL3":
+        DR_indicator = xr.open_dataset(
+            os.path.join(
+                DATA_DIR,
+                "DYAMOND3/n2560RAL3/glm/glm.n2560RAL3_inter_scale_energy_transfer_kinetic_Nl_31_20200121T00_50S-50N_p0200_tstep0.nc"
             )
         )["DR_indicator"]
     else:
@@ -344,17 +351,23 @@ if __name__ == "__main__":
         # create lon-lat maps save directory
         SAVE_DIR = os.path.join(PLOT_DIR, simid, "lon_lat_maps")
         Path(SAVE_DIR).mkdir(parents=True, exist_ok=True)
-        
-        # subset Maritime Continent (MC)
-        #_DR_indicator = DR_indicator.sel(longitude=slice(90,160),latitude=slice(-15,15))
-        #subset_str = "MC_subset"
-        
-        # subset Indian Ocean (IO)
-        _DR_indicator = DR_indicator.sel(longitude=slice(40,110),latitude=slice(-15,15))
-        subset_str = "IO_subset"
+
+        subset = None
+
+        if subset == "MC":
+            # subset Maritime Continent (MC)
+            _DR_indicator = DR_indicator.sel(longitude=slice(90,160),latitude=slice(-15,15))
+            subset_str = "MC_subset"
+        elif subset == "IO":
+            # subset Indian Ocean (IO)
+            _DR_indicator = DR_indicator.sel(longitude=slice(40,110),latitude=slice(-15,15))
+            subset_str = "IO_subset"
+        else:
+            _DR_indicator = DR_indicator.sel(latitude=slice(-45,45))
+            subset_str = ""
         
         # subsetting/mean operations
-        p_levs = [200,850]#[100,200,300,400,500,600,700,850]
+        p_levs = [200]#,850]#[100,200,300,400,500,600,700,850]
 
         print("\n\n\nPlotting lon-lat maps")
     
@@ -372,7 +385,7 @@ if __name__ == "__main__":
                 # define output filename & plot title
                 fname = os.path.join(
                     _SAVE_DIR,
-                    f"DR_indicator_{simid}_Nl_{n_scales}{scale_subset_str}_{startdate}_{time_str}_{subset_str}.png"
+                    f"DR_indicator_{simid}_Nl_{n_scales}{scale_subset_str}_{startdate}_{time_str}.png"
                 )
                 title = f"DR indicator for {simid} {startdate} {mean_str} at {p} hPa"
                 
@@ -391,7 +404,7 @@ if __name__ == "__main__":
                     # define output filename & plot title
                     fname = os.path.join(
                         _SAVE_DIR,
-                        f"DR_indicator_{simid}_Nl_{n_scales}{scale_subset_str}_p{p:04d}_{startdate}_{time_str}_{subset_str}.png"
+                        f"DR_indicator_{simid}_Nl_{n_scales}{scale_subset_str}_p{p:04d}_{startdate}_{time_str}.png"
                     )
                     title = f"DR indicator for {simid} {startdate} {mean_str} at {p} hPa"
 
