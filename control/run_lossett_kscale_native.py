@@ -37,13 +37,15 @@ if __name__ == "__main__":
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour%12)*12:02d}"
 
     # calculation specification
-    max_r_deg = 0.2 # should be command line option!
-    tsteps = 1
+    max_r_deg = float(sys.argv[6])
+    tsteps = 4
     tchunks = 1
     pchunks = 1
     prec = 1e-10
     chunk_latlon = False
     subset_lat = True
+    single_t = False
+    single_p = False
 
     control_dict = {
         "max_r": max_r_deg,
@@ -65,20 +67,26 @@ if __name__ == "__main__":
     ## subset single day
     #ds_u_3D = ds_u_3D.isel(time = slice((day-1)*tsteps_per_day,day*tsteps_per_day))
     
-    # subset single time and pressure level
-    plev=200
-    tstep=0
-    ds_u_3D = ds_u_3D.isel(time=tstep).sel(pressure=plev,method="nearest")
-    ds_u_3D = ds_u_3D.expand_dims(dim=["time","pressure"])
-    print(ds_u_3D)
-
-    if nest_mod_id == "glm":
-        print(f"\n\n\nCalculating {period} global {dri_mod_id} DR indicator for {dt_str}")
+    if single_t:
+        # subset single time
+        tstep=0
+        ds_u_3D = ds_u_3D.isel(time=tstep)
+        ds_u_3D = ds_u_3D.expand_dims(dim="time")
     else:
-        print(f"\n\n\nCalculating {period} {nest_mod_id} (driven by {dri_mod_id}) DR indicator for {dt_str}")
+        # subset time; chunk time
+        t_str = f"_tstep0-{tsteps-1}"
+        ds_u_3D = ds_u_3D.isel(time=slice(0,tsteps)).chunk(chunks={"time":tchunks})
 
-    # subset time; chunk time
-    ds_u_3D = ds_u_3D.isel(time=slice(0,tsteps)).chunk(chunks={"time":tchunks,"pressure":pchunks})
+    # subset single pressure level
+    if single_p:
+        plev=200
+        ds_u_3D = ds_u_3D.sel(pressure=plev,method="nearest")
+        ds_u_3D = ds_u_3D.expand_dims(dim="pressure")
+        p_str = f"_p{plev:04d}"
+    else:
+        plevs = [200,850]#[200,400,600,850]
+        ds_u_3D = ds_u_3D.sel(pressure=plevs,method="nearest").chunk(chunks={"pressure":pchunks})
+        p_str = ""
 
     # chunk lat & lon (TEST!)
     if chunk_latlon:
@@ -92,6 +100,11 @@ if __name__ == "__main__":
         ds_u_3D = ds_u_3D.sel(latitude=slice(latmin,latmax))
         subset_str = "_50S-50N"
 
+    if nest_mod_id == "glm":
+        print(f"\n\n\nCalculating {period} global {dri_mod_id} DR indicator for {dt_str}")
+    else:
+        print(f"\n\n\nCalculating {period} {nest_mod_id} (driven by {dri_mod_id}) DR indicator for {dt_str}")
+
     print("\nInput data:\n",ds_u_3D)
     
     # calculate kinetic DR indicator
@@ -103,7 +116,7 @@ if __name__ == "__main__":
     n_l = len(DR_indicator.length_scale)
     fpath = os.path.join(
         OUT_DIR,
-        f"{nest_mod_id}.{dri_mod_id}_inter_scale_energy_transfer_kinetic_Nl_{n_l}_{dt_str}{subset_str}_p{plev:04d}_tstep{tstep}.nc"
+        f"{nest_mod_id}.{dri_mod_id}_inter_scale_energy_transfer_kinetic_Nl_{n_l:02d}_{dt_str}{subset_str}{p_str}{t_str}.nc"
     )
     print(f"\n{DR_indicator.name}:\n",DR_indicator)
     print(f"\nSaving {DR_indicator.name} to NetCDF at location {fpath}.")

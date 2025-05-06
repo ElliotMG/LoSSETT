@@ -68,7 +68,7 @@ def load_kscale(simid, period, grid):
     
     return ds_u_3D;
 
-def load_kscale_native(period,datetime,driving_model,nested_model=None):
+def load_kscale_native(period,datetime,driving_model,nested_model=None,return_iris=False):
     DATA_DIR_ROOT = "/gws/nopw/j04/kscale/"
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour%12)*12:02d}"
     
@@ -109,22 +109,29 @@ def load_kscale_native(period,datetime,driving_model,nested_model=None):
     else:
         print(f"Loading velocity data from {fpath}")
         data_iris = iris.load(fpath)
-        
-    print(data_iris)
-    uvw = []
-    # convert to Xarray
-    for name in ["x_wind","y_wind","upward_air_velocity"]:
-        vel_cpt = xr.DataArray.from_iris(data_iris.extract_cube(iris.Constraint(name=name)))
-        print(vel_cpt)
-        uvw.append(vel_cpt)
-    ds = xr.merge(uvw).rename(
-        {
-            "x_wind": "u",
-            "y_wind": "v",
-            "upward_air_velocity": "w"
-        }
-    )
-    return ds;
+
+    # extract u,v,w
+    names = ["x_wind","y_wind","upward_air_velocity"]
+    name_cons = [iris.Constraint(name=name) for name in names]
+    u = data_iris.extract_cube(name_cons[0])
+    v = data_iris.extract_cube(name_cons[1])
+    w = data_iris.extract_cube(name_cons[2])
+    # u,v,w are on B-grid (u,v at cell vertices, w at cell centres)
+    # thus linearly interpolate w to cell vertices (done lazily)
+    w = w.regrid(u[0,0,:,:],iris.analysis.Linear())
+    u.rename("u")
+    v.rename("v")
+    w.rename("w")
+    data_iris = iris.cube.CubeList([u,v,w])
+    
+    # convert to xarray Dataset
+    uvw = [xr.DataArray.from_iris(vel_cpt) for vel_cpt in [u,v,w]]
+    ds = xr.merge(uvw)
+    
+    if return_iris:
+        return ds, data_iris;
+    else:
+        return ds;
 
 if __name__ == "__main__":
     period="DYAMOND3"
