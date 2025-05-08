@@ -31,13 +31,15 @@ if __name__ == "__main__":
     Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
     # day & hour of simulation
-    date = sys.argv[4]
-    hour = int(sys.argv[5])
-    datetime = dt.datetime.strptime(date, "%Y-%m-%d").replace(hour=hour)
+    year = int(sys.argv[4])
+    month = int(sys.argv[5])
+    day = int(sys.argv[6])
+    hour = int(sys.argv[7])
+    datetime = dt.datetime(year,month,day,hour)
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour%12)*12:02d}"
 
     # calculation specification
-    max_r_deg = float(sys.argv[6])
+    max_r_deg = float(sys.argv[8])
     tsteps = 4
     tchunks = 1
     pchunks = 1
