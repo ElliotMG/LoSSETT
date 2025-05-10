@@ -29,7 +29,7 @@ if __name__ == "__main__":
     Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
     # calculation specification
-    max_r_deg = 33.0 # should be command line option!
+    max_r_deg = 3.0 # should be command line option!
     tsteps = 8
     tchunks = 8
     pchunks = 12
@@ -53,8 +53,14 @@ if __name__ == "__main__":
     )
     ds_u_3D = preprocess_era5.load_era5(var_names, yearmonths, data_dir)
 
-    # subset single day
-    ds_u_3D = ds_u_3D.isel(time = slice((day-1)*tsteps_per_day,day*tsteps_per_day))
+    ## subset single day
+    #ds_u_3D = ds_u_3D.isel(time = slice((day-1)*tsteps_per_day,day*tsteps_per_day))
+    
+    # subset single time and pressure level
+    plev=200
+    tstep=0
+    ds_u_3D = ds_u_3D.isel(time=tstep).sel(pressure=plev,method="nearest")
+    ds_u_3D = ds_u_3D.expand_dims(dim=["time","pressure"])
     print(ds_u_3D)
 
     # create date string
@@ -64,12 +70,16 @@ if __name__ == "__main__":
 
     # subset time; chunk time
     ds_u_3D = ds_u_3D.isel(time=slice(0,tsteps)).chunk(chunks={"time":tchunks,"pressure":pchunks})
+    
     print("\nInput data:\n",ds_u_3D)
 
     # calculate kinetic DR indicator
     DR_indicator = calc_inter_scale_energy_transfer_kinetic(
         ds_u_3D, control_dict
     )
+
+    print("\n\n\nEND.\n")
+    sys.exit(0)
 
     # save to NetCDF
     n_l = len(DR_indicator.length_scale)

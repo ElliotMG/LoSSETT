@@ -2,8 +2,8 @@
 #SBATCH --account=kscale                        # account (usually a GWS)
 #SBATCH --partition=standard                    # partition
 #SBATCH --qos=standard                          # quality of service
-#SBATCH --array=1                               # batch array
-#SBATCH --time=8:00:00                          # walltime
+#SBATCH --array=[1]                               # batch array
+#SBATCH --time=08:00:00                          # walltime
 #SBATCH --mem=128G                              # total memory (can also specify per-node, or per-core)
 #SBATCH --ntasks=1                              # number of tasks (should force just 1 node and 1 CPU core)
 #SBATCH --job-name="calc_DR_u-dc009"            # job name

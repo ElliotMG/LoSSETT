@@ -29,8 +29,8 @@ if __name__ == "__main__":
     # calculation specification
     max_r_deg = 20.0 # should be command line option!
     tsteps = 4
-    tchunks = 2
-    pchunks = 2
+    tchunks = 4
+    pchunks = 7
     prec = 1e-10
 
     control_dict = {
@@ -69,6 +69,7 @@ if __name__ == "__main__":
                 f"u-dc009_apc_upward_air_velocity_1980{month:02d}_NAtl.nc"
             )
         ],
+        drop_variables=["leadtime","latitude_longitude"],
         mask_and_scale=True,
         join="inner" # means only take matching temporal data; need to check whether values
         # are instantaneous or time-average as this would need to change if the latter
@@ -79,6 +80,8 @@ if __name__ == "__main__":
             "y_wind":"v"
         }
     )
+    print(ds_u_3D)
+    ds_u_3D = ds_u_3D.transpose("time","longitude","latitude","pressure")
     print(ds_u_3D)
 
     # subset single day

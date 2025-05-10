@@ -126,22 +126,45 @@ if __name__ == "__main__":
     startdate = dt.datetime(2016,8,1)
 
     # load time-mean DR indicator (compute & save if it doesn't exist)
-    fpath_mean = os.path.join(
-        DATA_DIR,
-        f"DR_test_{simid}_Nl_{n_scales}_time-mean.nc"
-    )
+    if simid == "CTC5GAL" or simid == "CTC5RAL":
+        fpath_mean = os.path.join(
+            DATA_DIR,
+            f"DR_test_{simid}_Nl_{n_scales}_DyS_time-mean.nc"
+        )
+    elif simid == "ERA5":
+        fpath_mean = os.path.join(
+            DATA_DIR,
+            "ERA5",
+            f"inter_scale_energy_transfer_kinetic_ERA5_0p5deg_Nl_31_DyS_time-mean.nc"
+        )
+    else:
+        print(f"\nERROR: loading for simid = {simid} not implemented yet!")
+        sys.exit(1)
+
     if not os.path.exists(fpath_mean):
-        print("\n\n\nComputing time-mean DR indicator")
+        print(f"\n\n\nComputing time-mean DR indicator for {simid}")
         # load DR indicator
-        DR = xr.open_mfdataset(
-            [
-                os.path.join(
-                    DATA_DIR,
-                    f"DR_test_{simid}_Nl_{n_scales}_"\
-                    f"{date.year:04d}-{date.month:02d}-{date.day:02d}_t0-{tsteps-1}.nc"
-                ) for date in [startdate + dt.timedelta(i) for i in range(40)]
-            ]
-        )["DR_indicator"]
+        if simid == "CTC5GAL" or simid == "CTC5RAL":
+            DR = xr.open_mfdataset(
+                [
+                    os.path.join(
+                        DATA_DIR,
+                        f"DR_test_{simid}_Nl_{n_scales}_"\
+                        f"{date.year:04d}-{date.month:02d}-{date.day:02d}_t0-{tsteps-1}.nc"
+                    ) for date in [startdate + dt.timedelta(i) for i in range(40)]
+                ]
+            )["DR_indicator"]
+        elif simid == "ERA5":
+            DR = xr.open_mfdataset(
+                [
+                    os.path.join(
+                        DATA_DIR,
+                        "ERA5",
+                        "inter_scale_energy_transfer_kinetic_ERA5_0p5deg_Nl_31_"\
+                        f"{date.year:04d}-{date.month:02d}-{date.day:02d}.nc"
+                    ) for date in [startdate + dt.timedelta(i) for i in range(40)]
+                ]
+            )["DR_indicator"]
 
         # re-chunk
         DR = DR.chunk(
@@ -160,7 +183,7 @@ if __name__ == "__main__":
         #endif
 
     DR_tmean = xr.open_dataset(fpath_mean)["DR_indicator"]
-    print("\n\n\nTime-mean DR indicator:\n",DR_tmean)
+    print(f"\n\n\nTime-mean DR indicator for {simid}:\n",DR_tmean)
 
     # plotting switches & strings
     show = False
