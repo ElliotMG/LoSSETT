@@ -48,7 +48,7 @@ if __name__ == "__main__":
     prec = 1e-10
     chunk_latlon = False
     subset_lat = True
-    single_t = True#False
+    single_t = False
     tstep = int(sys.argv[9])
     single_p = True #False
     plev = int(sys.argv[10])
