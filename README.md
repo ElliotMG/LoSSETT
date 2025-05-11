@@ -1,6 +1,6 @@
 # LoSSETT (Local Scale-to-Scale Energy Transfer Tool)
 
-LoSSETT (the Local Scale-to-Scale Energy Transfer Tool) is a program designed to calculate local energy transfer across specified length scales. The energy transfer from scales larger than $\ell$ to scales smaller than $\ell$ is derived in [Duchon & Robert (2000)](https://iopscience.iop.org/article/10.1088/0951-7715/13/1/312) to be:
+LoSSETT (the Local Scale-to-Scale Energy Transfer Tool) is a Python package for calculating local energy transfer across specified length scales. The energy transfer from scales larger than $\ell$ to scales smaller than $\ell$ is derived in [Duchon & Robert (2000)](https://iopscience.iop.org/article/10.1088/0951-7715/13/1/312) to be:
 
 $\mathbf{D}_{\ell} := \frac{1}{4} \int \nabla G _\ell(\mathbf{r}) \cdot \delta \mathbf{u} |\delta \mathbf{u}|^2 \mathrm{d}^d\mathbf{r}.$
 
@@ -10,18 +10,22 @@ Note that this code is currently a work-in-progress.
 
 ## Repository Structure
 
-* `/calc/` contains the core computational routines for calculating inter-scale energy transfers and related metrics:
-* `/control/` contains scripts for orchestrating the execution of LoSSETT workflows, including on test data.
-* `/filtering/` contains utilities for filtering and integration.
-* `/plotting/` contains various example plotting `.py` scripts and `.ipynb` notebooks.
-* `/preprocessing/` contains python scripts for pre-procesing the data to match the specific cases in `/control`.
+Within `src`:
+
+* `lossett/calc` contains the core computational routines for calculating inter-scale energy transfers.
+* `lossett/filtering` contains utilities for filtering and integration.
+* `lossett_control/control` contains Python and Bash scripts for orchestrating the execution of LoSSETT workflows, including on test data.
+* `lossett_control/prepreocessing` contains Python scripts for pre-procesing the data to match the specific cases in `lossett_control/control`.
+* `lossett_plotting` contains various example plotting Python scripts and iPython notebooks.
 
 ## Prerequisites
-Current distribution of python (Python 3) - built on `xarray` with `matplotlib` and `cartopy` for plotting. See `requirements.txt` for full list of requirements.
+Current distribution of python (Python 3) - built on `xarray` with `matplotlib` and `cartopy` for plotting. See `pyproject.toml` for full list of requirements.
 
 ## Installation
 
-1. Clone the repository:
+1. Install poetry [https://github.com/python-poetry/poetry], `pip install poetry`.
+2. Clone the repository & install using `poetry`:
    ```bash
    git clone github.com/ElliotMG/LoSSETT/
    cd LoSSETT
+   poetry install
