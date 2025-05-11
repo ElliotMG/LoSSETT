@@ -41,18 +41,48 @@ if __name__ == "__main__":
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour%12)*12:02d}"
 
     # calculation specification
+    load_nc = True
+    chunk_latlon = False
+    subset_lat = True
     max_r_deg = float(sys.argv[8])
     tsteps = 4
     tchunks = 1
     pchunks = 1
     prec = 1e-10
-    chunk_latlon = False
-    subset_lat = True
-    single_t = False
-    tstep = int(sys.argv[9])
-    single_p = True #False
-    plev = int(sys.argv[10])
-    load_nc = True
+    try:
+        tstep = int(sys.argv[9])
+    except ValueError:
+        tstep = None
+        single_t = False
+    else:
+        single_t = True
+
+    try:
+        plev = int(sys.argv[10])
+    except ValueError:
+        plev = None
+        single_p = False
+    else:
+        single_p = True
+
+    print(
+        "\n\nInput data specifications:\n"\
+        f"period \t\t= {period}\n"\
+        f"driving_model \t= {dri_mod_id}\n"\
+        f"nested_model \t= {nest_mod_id}\n"\
+        f"datetime \t= {dt_str}\n"\
+    )
+    print(
+        "\nCalculation specifications:\n"\
+        f"out_dir \t= {OUT_DIR}\n"\
+        f"load_nc \t= {load_nc}\n"\
+        f"single_t \t= {single_t}\n"\
+        f"single_p \t= {single_p}\n"\
+        f"max_r_deg \t= {max_r_deg:.1f}\n"\
+        f"tchunks \t= {tchunks}\n"\
+        f"pchunks \t= {pchunks}\n"\
+        f"subset_lat \t= {subset_lat}\n"\
+    )
 
     control_dict = {
         "max_r": max_r_deg,
@@ -73,7 +103,7 @@ if __name__ == "__main__":
         if dri_mod_id == "n2560RAL3":
             dri_mod_str = "n2560_RAL3p3"
         fpath = os.path.join(DATA_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_{dt_str}.nc")
-        print(f"Loading via tmp NetCDF from {fpath}")
+        print(f"\nLoading via tmp NetCDF from {fpath}")
         ds_u_3D = xr.open_dataset(fpath)
     else:
         ds_u_3D = load_kscale_native(
@@ -82,7 +112,6 @@ if __name__ == "__main__":
     
     if single_t:
         # subset single time
-        tstep=0
         ds_u_3D = ds_u_3D.isel(time=tstep)
         ds_u_3D = ds_u_3D.expand_dims(dim="time")
         t_str=f"_tstep{tstep}"
