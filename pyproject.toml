@@ -8,14 +8,13 @@ authors = [
 ]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11" # simply because that's what the developers have been using
 dependencies = [
     "xarray",
-    "iris",
-    "numpy",
+    "scitools-iris",
+    "numpy<2.0.0", # mo_pack conflicts w/ numpy >=2.0.0
     "pandas",
     "datetime",
-    #"mo_pack",
     "matplotlib",
     "cartopy",
     "mo_pack @ git+https://github.com/SciTools/mo_pack.git"
