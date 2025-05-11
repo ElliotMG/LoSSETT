@@ -25,9 +25,11 @@ if __name__ == "__main__":
 
     if nest_mod_id in ["None","none","glm"]:
         nest_mod_id = "glm"
+        nest_mod_str = "glm"
 
     # output directory
-    OUT_DIR = f"/gws/nopw/j04/kscale/USERS/dship/LoSSETT_out/{period}/{dri_mod_id}/{nest_mod_id}"
+    #OUT_DIR = f"/gws/nopw/j04/kscale/USERS/dship/LoSSETT_out/{period}/{dri_mod_id}/{nest_mod_id}"
+    OUT_DIR = "/work/scratch-pw2/dship/LoSSETT/output/kscale/"
     Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
     # day & hour of simulation
@@ -46,8 +48,11 @@ if __name__ == "__main__":
     prec = 1e-10
     chunk_latlon = False
     subset_lat = True
-    single_t = False
-    single_p = False
+    single_t = True#False
+    tstep = int(sys.argv[9])
+    single_p = True #False
+    plev = int(sys.argv[10])
+    load_nc = True
 
     control_dict = {
         "max_r": max_r_deg,
@@ -62,18 +67,25 @@ if __name__ == "__main__":
     }
 
     # open data
-    ds_u_3D = load_kscale_native(
-        period,datetime,driving_model=dri_mod_id,nested_model=nest_mod_id
-    )
-
-    ## subset single day
-    #ds_u_3D = ds_u_3D.isel(time = slice((day-1)*tsteps_per_day,day*tsteps_per_day))
+    if load_nc:
+        DATA_DIR = "/work/scratch-pw2/dship/LoSSETT/preprocessed_kscale_data"
+        #DATA_DIR = "/work/scratch-nopw2/dship/LoSSETT/preprocessed_kscale_data"
+        if dri_mod_id == "n2560RAL3":
+            dri_mod_str = "n2560_RAL3p3"
+        fpath = os.path.join(DATA_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_{dt_str}.nc")
+        print(f"Loading via tmp NetCDF from {fpath}")
+        ds_u_3D = xr.open_dataset(fpath)
+    else:
+        ds_u_3D = load_kscale_native(
+            period,datetime,driving_model=dri_mod_id,nested_model=nest_mod_id
+        )
     
     if single_t:
         # subset single time
         tstep=0
         ds_u_3D = ds_u_3D.isel(time=tstep)
         ds_u_3D = ds_u_3D.expand_dims(dim="time")
+        t_str=f"_tstep{tstep}"
     else:
         # subset time; chunk time
         t_str = f"_tstep0-{tsteps-1}"
@@ -81,12 +93,11 @@ if __name__ == "__main__":
 
     # subset single pressure level
     if single_p:
-        plev=200
         ds_u_3D = ds_u_3D.sel(pressure=plev,method="nearest")
         ds_u_3D = ds_u_3D.expand_dims(dim="pressure")
         p_str = f"_p{plev:04d}"
     else:
-        plevs = [200,850]#[200,400,600,850]
+        plevs = [50,200,500,700,850]#[200,850]
         ds_u_3D = ds_u_3D.sel(pressure=plevs,method="nearest").chunk(chunks={"pressure":pchunks})
         p_str = ""
 

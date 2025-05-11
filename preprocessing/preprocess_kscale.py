@@ -68,9 +68,9 @@ def load_kscale(simid, period, grid):
     
     return ds_u_3D;
 
-def load_kscale_native(period,datetime,driving_model,nested_model=None,return_iris=False):
+def load_kscale_native(period,datetime,driving_model,nested_model=None,return_iris=False,save_nc=False):
     DATA_DIR_ROOT = "/gws/nopw/j04/kscale/"
-    dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour%12)*12:02d}"
+    dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour//12)*12:02d}"
     
     # DYAMOND 3
     if period == "DYAMOND3":
@@ -127,6 +127,19 @@ def load_kscale_native(period,datetime,driving_model,nested_model=None,return_ir
     # convert to xarray Dataset
     uvw = [xr.DataArray.from_iris(vel_cpt) for vel_cpt in [u,v,w]]
     ds = xr.merge(uvw)
+
+    # save NetCDF to scratch
+    if save_nc:
+        from pathlib import Path
+        #SAVE_DIR = "/work/scratch-pw2/dship/LoSSETT/preprocessed_kscale_data"
+        #SAVE_DIR = "/gws/nopw/j04/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data"
+        SAVE_DIR = "/work/scratch-nopw2/dship/LoSSETT/preprocessed_kscale_data"
+        Path(SAVE_DIR).mkdir(parents=True,exist_ok=True)
+        fpath = os.path.join(SAVE_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_{dt_str}.nc")
+        if not os.path.exists(fpath):
+            print(f"\n\n\nSaving velocity data to NetCDF at {fpath}.")
+            ds.to_netcdf(fpath) # available engines: netcdf4, h5netcdf, scipy
+            #iris.save(data_iris,fpath)
     
     if return_iris:
         return ds, data_iris;
@@ -134,12 +147,18 @@ def load_kscale_native(period,datetime,driving_model,nested_model=None,return_ir
         return ds;
 
 if __name__ == "__main__":
-    period="DYAMOND3"
-    datetime = dt.datetime(2020,9,15,0)
-    driving_model = "n2560RAL3"
-    ds = load_kscale_native(period,datetime,driving_model,nested_model=None)
-    ds_u_t0_p200 = ds.isel(time=0).sel(pressure=200,method="nearest")
-    print(ds_u_t0_p200)
-    sys.exit(1)
-    ds = load_kscale("CTC5RAL","DS","0p5deg")
-    print(ds)
+    period=sys.argv[1]
+    driving_model = sys.argv[2]
+    nested_model = sys.argv[3]
+    year = int(sys.argv[4])
+    month = int(sys.argv[5])
+    day = int(sys.argv[6])
+    hour = int(sys.argv[7])
+    datetime = dt.datetime(year,month,day,hour)
+    print("\n\n\nPreprocessing details:")
+    print(
+        f"\nPeriod: {period}, driving model: {driving_model}, nested_model = {nested_model}, "\
+        f"date = {year:04d}-{month:02d}-{day:02d}, hour = {hour:02d}"
+    )
+    ds = load_kscale_native(period,datetime,driving_model,nested_model=None,save_nc=True)
+    print("\n\n\nEND.")

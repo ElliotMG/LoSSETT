@@ -2,16 +2,16 @@
 #SBATCH --account=kscale                        # account (usually a GWS)
 #SBATCH --partition=standard                    # partition
 #SBATCH --qos=high                              # quality of service
-#SBATCH --array=[2]                             # job array (item identifier is %a)
-#SBATCH --time=06:00:00                         # walltime
-#SBATCH --ntasks=4                              # not quite sure if this is the right way to specify number of processes?
-#SBATCH --ntasks-per-node=4
+#SBATCH --array=[11-20]                             # job array (item identifier is %a)
+#SBATCH --time=24:00:00                         # walltime
+#SBATCH --ntasks=5                              # not quite sure if this is the right way to specify number of processes?
+#SBATCH --ntasks-per-node=5
 #SBATCH --cpus-per-task=1 
 #SBATCH --mem-per-cpu=65G                       # memory per cpu (should end up as memory per task)
 ##SBATCH --mem=200G                              # total memory (can also specify per-node, or per-core)
 #SBATCH --job-name="calc_DR_kscale_native"         # job name
-#SBATCH --output=/home/users/dship/log/log_calc_DR_indicator_kscale_native_%a.out      # output file
-#SBATCH --error=/home/users/dship/log/log_calc_DR_indicator_kscale_native_%a.err       # error file
+#SBATCH --output=/home/users/dship/log/log_calc_DR_indicator_kscale_native_12_%a.out      # output file
+#SBATCH --error=/home/users/dship/log/log_calc_DR_indicator_kscale_native_12_%a.err       # error file
 #SBATCH
 
 SCRIPTPATH="/home/users/dship/python"
@@ -23,4 +23,4 @@ echo "Start Job $SLURM_JOB_ID, array $SLURM_ARRAY_TASK_ID on $HOSTNAME"  # Displ
 cd $SCRIPTPATH
 
 # should really take options from a yaml options file! Then the run script could just load the opt file
-python3 -m LoSSETT.control.run_lossett_kscale_native "DYAMOND3" "n2560RAL3" "none" 2020 9 ${SLURM_ARRAY_TASK_ID} "00" ${max_r_deg}
+python3 -m LoSSETT.control.run_lossett_kscale_native "DYAMOND3" "n2560RAL3" "none" 2020 9 ${SLURM_ARRAY_TASK_ID} "12" ${max_r_deg}
