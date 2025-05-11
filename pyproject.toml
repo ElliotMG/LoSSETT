@@ -18,6 +18,7 @@ dependencies = [
     #"mo_pack",
     "matplotlib",
     "cartopy",
+    "mo_pack @ git+https://github.com/SciTools/mo_pack.git"
 ]
 
 [project.urls]

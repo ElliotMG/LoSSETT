@@ -390,6 +390,22 @@ python-dateutil = ">=2.7"
 dev = ["meson-python (>=0.13.1,<0.17.0)", "pybind11 (>=2.13.2,!=2.13.3)", "setuptools (>=64)", "setuptools_scm (>=7)"]
 
 [[package]]
+name = "mo_pack"
+version = "0.4.0.dev66"
+description = "Python wrapper to libmo_unpack"
+optional = false
+python-versions = ">=3.11"
+groups = ["main"]
+files = []
+develop = false
+
+[package.source]
+type = "git"
+url = "https://github.com/SciTools/mo_pack.git"
+reference = "HEAD"
+resolved_reference = "0227ddb17b577529c75303c5ad37ae3526092cf2"
+
+[[package]]
 name = "numpy"
 version = "2.2.5"
 description = "Fundamental package for array computing in Python"
@@ -939,4 +955,4 @@ testing = ["coverage[toml]", "zope.event", "zope.testing"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11"
-content-hash = "5fc178bb7de1c115a4fed0ca6652ea5375633d782b0421a8cd375ad5c647a910"
+content-hash = "e340e40ee725576414c4d28ca893ee44199b1c7ded19931c96232a9c488fdb69"
