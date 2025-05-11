@@ -2,15 +2,16 @@
 # Account, partition, QOS
 #SBATCH --account=kscale                        # account (usually a GWS)
 #SBATCH --partition=standard                    # partition
-#SBATCH --qos=high                              # quality of service
+#SBATCH --qos=standard #high                              # quality of service
 
 # Main job spec
-#SBATCH --array=[2] #[1-30]                            # job array (item identifier is %a)
-#SBATCH --time=06:00:00                        # walltime
-#SBATCH --ntasks=4                              # not quite sure if this is the right way to specify number of processes?
-#SBATCH --ntasks-per-node=1 #4
-#SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=100G #70G                       # memory per cpu (should end up as memory per task)
+#SBATCH --array=[28] #[1-30]                            # job array (item identifier is %a)
+#SBATCH --time=16:00:00                        # walltime
+#SBATCH --ntasks=1                              # not quite sure if this is the right way to specify number of processes?
+##SBATCH --nodes=4
+##SBATCH --ntasks-per-node=4
+##SBATCH --cpus-per-task=1
+#SBATCH --mem-per-cpu=70G #70G                       # memory per cpu (should end up as memory per task)
 ##SBATCH --mem=200G                              # total memory (can also specify per-node, or per-core)
 
 # Output & monitoring
