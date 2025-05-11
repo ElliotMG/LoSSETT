@@ -23,9 +23,13 @@ Current distribution of python (Python 3) - built on `xarray` with `matplotlib` 
 
 ## Installation
 
+As a user:
+* `pip install  git+https://github.com/ElliotMG/LoSSETT.git`
+
+As a developer:
 1. Install poetry [https://github.com/python-poetry/poetry], `pip install poetry`.
 2. Clone the repository & install using `poetry`:
    ```bash
-   git clone github.com/ElliotMG/LoSSETT/
+   git clone git@github.com:ElliotMG/LoSSETT.git
    cd LoSSETT
    poetry install
