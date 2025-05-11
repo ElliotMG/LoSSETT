@@ -9,8 +9,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import cartopy as cpy
 
-from ..preprocessing.preprocess_kscale import load_kscale
-from ..calc.calc_inter_scale_transfers import calc_inter_scale_energy_transfer_kinetic
+from lossett_control.preprocessing.preprocess_kscale import load_kscale
+from lossett.calc.calc_inter_scale_transfers import calc_inter_scale_energy_transfer_kinetic
 
 if __name__ == "__main__":
     # should take all of these from command line or an options file

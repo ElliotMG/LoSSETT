@@ -4,7 +4,7 @@ import sys
 import numpy as np
 import xarray as xr
 # local imports
-from ..filtering.get_integration_kernels import get_integration_kernels
+from lossett.filtering.get_integration_kernels import get_integration_kernels
 
 radius_earth = 6.371e6 # radius of Earth in m
 deg_to_m = 110000.0 # conversion of latitudinal degrees to m

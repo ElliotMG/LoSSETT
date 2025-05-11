@@ -2,16 +2,13 @@
 import os
 import sys
 from pathlib import Path
+import mo_pack
 import numpy as np
 import xarray as xr
 import datetime as dt
-import pandas as pd
-import matplotlib.pyplot as plt
-import cartopy as cpy
-import mo_pack
 
-from ..preprocessing.preprocess_kscale import load_kscale_native
-from ..calc.calc_inter_scale_transfers import calc_inter_scale_energy_transfer_kinetic
+from lossett_control.preprocessing.preprocess_kscale import load_kscale_native
+from lossett.calc.calc_inter_scale_transfers import calc_inter_scale_energy_transfer_kinetic
 
 if __name__ == "__main__":
     # should take all of these from command line or an options file
