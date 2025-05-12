@@ -19,6 +19,10 @@ dependencies = [
     "cartopy",
     "mo_pack @ git+https://github.com/SciTools/mo_pack.git"
 ]
+packages = [
+    { include = "lossett_control" },
+    { include = "lossett_plot" },
+]
 
 [project.urls]
 repository = "https://github.com/ElliotMG/LoSSETT"
