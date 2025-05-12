@@ -5,8 +5,8 @@
 #SBATCH --qos=high                              # quality of service
 
 # Main job spec
-#SBATCH --array=[1-10] #[1-27,30]                            # job array (item identifier is %a)
-#SBATCH --time=06:00:00                        # walltime
+#SBATCH --array=[7-10] #[1-27,30]                            # job array (item identifier is %a)
+#SBATCH --time=12:00:00                        # walltime
 #SBATCH --ntasks=4 #1                              # not quite sure if this is the right way to specify number of processes?
 ##SBATCH --nodes=4
 #SBATCH --ntasks-per-node=4
