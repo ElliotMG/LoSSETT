@@ -38,7 +38,7 @@ if __name__ == "__main__":
     day = int(sys.argv[6])
     hour = int(sys.argv[7])
     datetime = dt.datetime(year,month,day,hour)
-    dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour%12)*12:02d}"
+    dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour//12)*12:02d}"
 
     # calculation specification
     load_nc = True

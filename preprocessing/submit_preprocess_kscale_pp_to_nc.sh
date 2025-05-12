@@ -2,7 +2,7 @@
 #SBATCH --account=kscale                        # account (usually a GWS)
 #SBATCH --partition=standard                    # partition
 #SBATCH --qos=standard                          # quality of service
-#SBATCH --array=[12] #[1-31]                             # job array (item identifier is %a)
+#SBATCH --array=[1,12] #[1-31]                             # job array (item identifier is %a)
 #SBATCH --time=01:00:00                         # walltime
 #SBATCH --ntasks=1                              # not quite sure if this is the right way to specify number of processes?
 #SBATCH --ntasks-per-node=1
@@ -22,7 +22,7 @@ echo "Start Job $SLURM_JOB_ID, array $SLURM_ARRAY_TASK_ID on $HOSTNAME"  # Displ
 
 cd $SCRIPTPATH
 
-hours=("0" "12")
+hours=("0") # "12")
 
 for hour in "${hours[@]}"
 do
