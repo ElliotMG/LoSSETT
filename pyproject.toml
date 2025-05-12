@@ -1,6 +1,6 @@
 [project]
 name = "lossett"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Python package for calculating inter-scale energy transfers in the atmosphere (and other fluids)."
 authors = [
     {name = "Dan Shipley",email = "daniel.shipley@reading.ac.uk"},
@@ -8,7 +8,7 @@ authors = [
 ]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.11" # simply because that's what the developers have been using
+requires-python = ">=3.9" # simply because that's what the developers have been using
 dependencies = [
     "xarray",
     "scitools-iris",
@@ -18,6 +18,10 @@ dependencies = [
     "matplotlib",
     "cartopy",
     "mo_pack @ git+https://github.com/SciTools/mo_pack.git"
+]
+packages = [
+    { include = "lossett_control" },
+    { include = "lossett_plot" },
 ]
 
 [project.urls]
