@@ -15,11 +15,17 @@ def plot_DR_indicator_lon_lat(
     x = DR_indicator[x_coord]
     y = DR_indicator[y_coord]
     mag=5e-3
+    lon_min = x[0]
+    lon_max = x[-1]
+    if 180 > lon_min and 180 < lon_max:
+        central_lon = 180
+    else:
+        central_lon = 0
     fig,_axes = plt.subplots(
         nrows=nrows,
         ncols=ncols,
         figsize=(20,10),#(ncols*5,nrows*2), # should set from expected aspect ratio of subplots
-        subplot_kw={"projection":cpy.crs.PlateCarree()}
+        subplot_kw={"projection":cpy.crs.PlateCarree(central_longitude=central_lon)}
     )
     axes = _axes.T.flatten()
     for il, ell in enumerate(chosen_scales):
@@ -27,14 +33,14 @@ def plot_DR_indicator_lon_lat(
         DR_plot = DR_indicator.sel(
             length_scale=ell, method="nearest"
         )
-        mean = DR_plot.mean([x_coord,y_coord])
+        mean = DR_plot.mean([x_coord,y_coord]).compute()
         if mean >= 0.0:
             colour = "C3"
         elif mean < 0.0:
             colour = "C0"
         
         pc = ax.pcolormesh(
-            x, y, DR_plot.transpose(y_coord,x_coord),
+            x-central_lon, y, DR_plot.transpose(y_coord,x_coord),
             cmap="RdBu_r", vmin=-mag, vmax=mag
         )
         ax.coastlines()
