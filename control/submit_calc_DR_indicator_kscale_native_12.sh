@@ -5,7 +5,7 @@
 #SBATCH --qos=high                              # quality of service
 
 # Main job spec
-#SBATCH --array=[1-10] #[1-27,30]                            # job array (item identifier is %a)
+#SBATCH --array=[5-16] #[1-27,30]                            # job array (item identifier is %a)
 #SBATCH --time=06:00:00                        # walltime
 #SBATCH --ntasks=4 #1                              # not quite sure if this is the right way to specify number of processes?
 ##SBATCH --nodes=4
@@ -30,6 +30,10 @@ plev=$3
 echo "Start Job $SLURM_JOB_ID, array $SLURM_ARRAY_TASK_ID on $HOSTNAME"  # Display job start information
 
 cd $SCRIPTPATH
+
+module load jasmin-sci jaspy
+source ~/envs/mo_pack_env/bin/activate
+which python
 
 # should really take options from a yaml options file! Then the run script could just load the opt file
 python3 -m LoSSETT.control.run_lossett_kscale_native "DYAMOND3" "n2560RAL3" "none" 2020 9 ${SLURM_ARRAY_TASK_ID} "12" ${max_r_deg} ${tstep} ${plev}
