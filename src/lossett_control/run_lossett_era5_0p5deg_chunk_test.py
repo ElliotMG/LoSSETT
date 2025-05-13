@@ -79,7 +79,7 @@ if __name__ == "__main__":
     )
 
     print("\n\n\nEND.\n")
-    sys.exit(0)
+    # sys.exit(0)
 
     # save to NetCDF
     n_l = len(DR_indicator.length_scale)
