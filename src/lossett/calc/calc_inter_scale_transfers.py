@@ -2,6 +2,7 @@
 import os
 import sys
 import numpy as np
+import dask as da
 import xarray as xr
 # local imports
 from lossett.filtering.get_integration_kernels import get_integration_kernels
@@ -53,7 +54,7 @@ def calc_inter_scale_energy_transfer_kinetic(
     r = scale_incs.r
 
     # compute delta u cubed integrated over angles for all |r|
-    print(f"\n\n\nCalculating angular integral for r={r[0].values/1000:.4g} km to r={r[-1].values/1000:.4g}")
+    print(f"\n\n\nCalculating angular integral for r={r[0].values/1000:.4g} km to r={r[-1].values/1000:.4g} km")
     delta_u_cubed = calc_increment_integrand(
         ds_u_3D, scale_incs, calc_delta_u_cubed, delta_x, delta_y,
         xdim=x_coord_name, ydim=y_coord_name, xbounds=x_bounds, ybounds=y_bounds,
