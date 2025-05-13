@@ -714,7 +714,7 @@ develop = false
 type = "git"
 url = "https://github.com/SciTools/mo_pack.git"
 reference = "HEAD"
-resolved_reference = "0227ddb17b577529c75303c5ad37ae3526092cf2"
+resolved_reference = "0775c742dab49fc658b0be1bc467416db484fb96"
 
 [[package]]
 name = "netcdf4"

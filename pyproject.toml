@@ -8,7 +8,7 @@ authors = [
 ]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.9" # simply because that's what the developers have been using
+requires-python = ">=3.11" # required for compatibility with mo_pack
 dependencies = [
     "xarray",
     "scitools-iris",
@@ -20,6 +20,7 @@ dependencies = [
     "mo_pack @ git+https://github.com/SciTools/mo_pack.git"
 ]
 packages = [
+    { include = "lossett" },
     { include = "lossett_control" },
     { include = "lossett_plot" },
 ]
