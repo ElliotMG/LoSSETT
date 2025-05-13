@@ -98,8 +98,8 @@ if __name__ == "__main__":
 
     # open data
     if load_nc:
-        DATA_DIR = "/work/scratch-pw2/dship/LoSSETT/preprocessed_kscale_data"
-        #DATA_DIR = "/work/scratch-nopw2/dship/LoSSETT/preprocessed_kscale_data"
+        #DATA_DIR = "/work/scratch-pw2/dship/LoSSETT/preprocessed_kscale_data"
+        DATA_DIR = "/work/scratch-nopw2/dship/LoSSETT/preprocessed_kscale_data"
         if dri_mod_id == "n2560RAL3":
             dri_mod_str = "n2560_RAL3p3"
         fpath = os.path.join(DATA_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_{dt_str}.nc")
