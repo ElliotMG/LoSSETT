@@ -24,11 +24,6 @@ if __name__ == "__main__":
         nest_mod_id = "glm"
         nest_mod_str = "glm"
 
-    # output directory
-    #OUT_DIR = f"/gws/nopw/j04/kscale/USERS/dship/LoSSETT_out/{period}/{dri_mod_id}/{nest_mod_id}"
-    OUT_DIR = "/work/scratch-pw2/dship/LoSSETT/output/kscale/"
-    Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
-
     # day & hour of simulation
     year = int(sys.argv[4])
     month = int(sys.argv[5])
@@ -36,6 +31,10 @@ if __name__ == "__main__":
     hour = int(sys.argv[7])
     datetime = dt.datetime(year,month,day,hour)
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour//12)*12:02d}"
+
+    # output directory
+    OUT_DIR = sys.argv[8]
+    Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
     # calculation specification
     load_nc = True
