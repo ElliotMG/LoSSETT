@@ -32,10 +32,6 @@ if __name__ == "__main__":
     datetime = dt.datetime(year,month,day,hour)
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour//12)*12:02d}"
 
-    # output directory
-    OUT_DIR = sys.argv[8]
-    Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
-
     # calculation specification
     load_nc = True
     chunk_latlon = False
@@ -60,6 +56,10 @@ if __name__ == "__main__":
         single_p = False
     else:
         single_p = True
+
+    # output directory
+    OUT_DIR = sys.argv[11]
+    Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
     print(
         "\n\nInput data specifications:\n"\
