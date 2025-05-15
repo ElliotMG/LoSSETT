@@ -68,7 +68,14 @@ def load_kscale(simid, period, grid):
     
     return ds_u_3D;
 
-def load_kscale_native(period,datetime,driving_model,nested_model=None,return_iris=False,save_nc=False):
+def load_kscale_native(
+        period,
+        datetime,
+        driving_model,
+        nested_model=None,
+        return_iris=False,
+        save_nc=False
+):
     DATA_DIR_ROOT = "/gws/nopw/j04/kscale/"
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour//12)*12:02d}"
     

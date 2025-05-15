@@ -61,6 +61,16 @@ if __name__ == "__main__":
     OUT_DIR = sys.argv[11]
     Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
+    try:
+        load_nc = sys.argv[12]
+    except:
+        load_nc = False
+    else:
+        if load_nc == "true" or load_nc == "True":
+            load_nc = True
+        else:
+            load_nc = False    
+
     print(
         "\n\nInput data specifications:\n"\
         f"period \t\t= {period}\n"\
