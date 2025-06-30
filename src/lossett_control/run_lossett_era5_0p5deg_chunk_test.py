@@ -20,7 +20,7 @@ if __name__ == "__main__":
     day = int(sys.argv[3])
     tsteps_per_day = 8
     sampling = f"{int(24/tsteps_per_day)}h"
-    print(sampling)
+    print(f"Time sampling = {sampling}")
     lon_bound_field = "periodic"
     lat_bound_field = np.nan # not really sure how to deal with the poles?
 
@@ -52,16 +52,12 @@ if __name__ == "__main__":
         year, month, sampling="3h", return_dates=False
     )
     ds_u_3D = preprocess_era5.load_era5(var_names, yearmonths, data_dir)
-
-    ## subset single day
-    #ds_u_3D = ds_u_3D.isel(time = slice((day-1)*tsteps_per_day,day*tsteps_per_day))
     
     # subset single time and pressure level
     plev=200
     tstep=0
     ds_u_3D = ds_u_3D.isel(time=tstep).sel(pressure=plev,method="nearest")
     ds_u_3D = ds_u_3D.expand_dims(dim=["time","pressure"])
-    print(ds_u_3D)
 
     # create date string
     date_str = f"{year:04d}-{month:02d}-{day:02d}"

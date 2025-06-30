@@ -15,6 +15,9 @@ def calc_inter_scale_energy_transfer_kinetic(
         ds_u_3D,
         control_dict
 ):
+    # extract attributes from input data
+    input_attrs = ds_u_3D.attrs
+    
     # extract control params
     max_r = control_dict["max_r"]
     max_r_units = control_dict["max_r_units"]
@@ -77,25 +80,26 @@ def calc_inter_scale_energy_transfer_kinetic(
     # specify length scales -- should probably be an if statement here to allow the user
     # to specify scales if desired.
     length_scales = r.values[1:len(r)//2]
-    # calculare DR
-    DR_indicator = calc_scale_space_integral(
+    # calculate inter-scale kinetic energy transfer
+    Dl_u = calc_scale_space_integral(
         integrand, length_scales=length_scales, weighting="2D",
         name="inter_scale_kinetic_energy_transfer"
     ) # should add options for kernel specification
 
-    DR_indicator = DR_indicator.assign_attrs(
+    Dl_u = Dl_u.assign_attrs(
         {
             "units": "m2 s-3",
             "description": \
             "Transfer of kinetic energy (density) across a length scale L computed using the formalism of "\
-            "Duchon and Robert (2000) [DOI HERE].",
+            "Duchon and Robert (2000) [DOI 10.1088/0951-7715/13/1/312].",
             "sign_convention": "Positive to smaller scales.",
-            "LoSSETT_version": LOSSETT_VN
+            "LoSSETT_version": LOSSETT_VN,
+            "input_data_attributes": input_attrs
         }
     ) # should add also kernel_attrs dict (for kernel type, dimensionality, length scale-to-resolution conversion)
     # and integration_attrs dict (for integral approximations e.g. Cartesian vs. spherical, uniform grid etc.)
     
-    return DR_indicator;
+    return Dl_u;
 
 def calc_inter_scale_energy_transfer_thermo():
     return 0;
