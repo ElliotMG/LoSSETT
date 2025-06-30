@@ -83,11 +83,12 @@ def calc_inter_scale_energy_transfer_kinetic(
     # calculate inter-scale kinetic energy transfer
     Dl_u = calc_scale_space_integral(
         integrand, length_scales=length_scales, weighting="2D",
-        name="inter_scale_kinetic_energy_transfer"
+        name="Dl_u"
     ) # should add options for kernel specification
 
     Dl_u = Dl_u.assign_attrs(
         {
+            "long_name": "inter_scale_kinetic_energy_transfer",
             "units": "m2 s-3",
             "description": \
             "Transfer of kinetic energy (density) across a length scale L computed using the formalism of "\
