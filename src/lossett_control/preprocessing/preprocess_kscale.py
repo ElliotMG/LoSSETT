@@ -68,6 +68,102 @@ def load_kscale(simid, period, grid):
     
     return ds_u_3D;
 
+def load_kscale_0p5deg(
+        period,
+        datetime,
+        driving_model,
+        nested_model=None,
+        plevs=[100,150,200,250,300,400,500,600,700,850,925,1000]
+):
+    DATA_DIR_ROOT = "/gws/nopw/j04/kscale"
+    dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}"
+
+    # should add a check that dates are in correct bounds!
+
+    # DYAMOND SUMMER
+    if period == "DYAMOND_SUMMER":
+        DATA_DIR = os.path.join(DATA_DIR_ROOT,"DATA","outdir_20160801T0000Z")
+        t0_str = "20160801T0000Z"
+        
+        # specify driving model
+        if driving_model == "n1280RAL3":
+            DATA_DIR = os.path.join(DATA_DIR,"DMn1280RAL3")
+            dri_mod_str = "n1280_RAL3p2"
+        elif driving_model == "n1280GAL9":
+            DATA_DIR = os.path.join(DATA_DIR,"DMn1280GAL9")
+            dri_mod_str = "n1280_GAL9"
+        #endif
+
+        # specify nested model
+        if nested_model is None or nested_model == "glm":
+            DATA_DIR = os.path.join(DATA_DIR,f"global_{dri_mod_str}")
+            nest_mod_str = "glm"
+            domain_str = "global"
+        elif nested_model == "channel_n2560_RAL3":
+            DATA_DIR = os.path.join(DATA_DIR,"channel_n2560_RAL3p2")
+            domain_str = "channel"
+        elif nested_model == "channel_n2560_GAL9":
+            DATA_DIR = os.path.join(DATA_DIR,"channel_n2560_GAL9")
+            domain_str = "channel"
+        else:
+            print(f"Nested model {nested_model} not yet supported.")
+            sys.exit(1)
+        #endif
+    #endif
+
+    # DYAMOND WINTER
+    elif period == "DYAMOND_WINTER":
+        DATA_DIR = os.path.join(DATA_DIR_ROOT,"DATA","outdir_20200120T0000Z")
+        t0_str = "20200120T0000Z"
+        
+        # specify driving model
+        if driving_model == "n1280RAL3":
+            DATA_DIR = os.path.join(DATA_DIR,"DMn1280RAL3")
+            dri_mod_str = "n1280_RAL3p2"
+        elif driving_model == "n1280GAL9":
+            DATA_DIR = os.path.join(DATA_DIR,"DMn1280GAL9")
+            dri_mod_str = "n1280_GAL9"
+        #endif
+
+        # specify nested model
+        if nested_model is None or nested_model == "glm":
+            DATA_DIR = os.path.join(DATA_DIR,f"global_{dri_mod_str}")
+            nest_mod_str = "glm"
+            domain_str = "global"
+        elif nested_model == "channel_n2560_RAL3":
+            DATA_DIR = os.path.join(DATA_DIR,"channel_n2560_RAL3p2")
+            domain_str = "channel"
+        elif nested_model == "channel_n2560_GAL9":
+            DATA_DIR = os.path.join(DATA_DIR,"channel_n2560_GAL9")
+            domain_str = "channel"
+        else:
+            print(f"Nested model {nested_model} not yet supported.")
+            sys.exit(1)
+        #endif
+    #endif
+
+    # DYAMOND 3
+    elif period == "DYAMOND3":
+        print("DYAMOND3 data coarsened to 0.5deg is not yet available.")
+        sys.exit(1)
+    #endif
+
+    ds_u_3D = []
+    for plev in plevs:
+        ds = xr.open_dataset(
+            os.path.join(
+                DATA_DIR,
+                f"profile_{plev}",
+                f"{dt_str}_{t0_str}_{domain_str}_profile_3hourly_{plev}_05deg.nc"
+            ),
+            drop_variables=["forecast_reference_time","forecast_period"],
+            mask_and_scale=True
+        ).assign_coords({"pressure":plev}).rename({"x_wind":"u","y_wind":"v","upward_air_velocity":"w"})
+        ds_u_3D.append(ds[["u","v","w"]])
+    ds_u_3D = xr.concat(ds_u_3D,dim="pressure")
+    
+    return ds_u_3D;
+
 def load_kscale_native(
         period,
         datetime,
@@ -187,7 +283,6 @@ def load_kscale_native(
         if not os.path.exists(fpath):
             print(f"\n\n\nSaving velocity data to NetCDF at {fpath}.")
             ds.to_netcdf(fpath) # available engines: netcdf4, h5netcdf, scipy
-            #iris.save(data_iris,fpath)
     
     if return_iris:
         return ds, data_iris;
@@ -204,18 +299,35 @@ if __name__ == "__main__":
     period=sys.argv[1]
     driving_model = sys.argv[2]
     nested_model = sys.argv[3]
-    year = int(sys.argv[4])
-    month = int(sys.argv[5])
-    day = int(sys.argv[6])
-    hour = int(sys.argv[7])
+    grid = sys.argv[4]
+    year = int(sys.argv[5])
+    month = int(sys.argv[6])
+    day = int(sys.argv[7])
+    hour = int(sys.argv[8])
     save_nc = False
     datetime = dt.datetime(year,month,day,hour)
     print("\n\n\nPreprocessing details:")
     print(
         f"\nPeriod: {period}, driving model: {driving_model}, nested_model = {nested_model}, "\
-        f"date = {year:04d}-{month:02d}-{day:02d}, hour = {hour:02d}"
+        f"grid = {grid}, date = {year:04d}-{month:02d}-{day:02d}, hour = {hour:02d}"
     )
     if nested_model == "none":
         nested_model=None
-    ds = load_kscale_native(period,datetime,driving_model,nested_model=nested_model,save_nc=save_nc)
+    if grid == "native":
+        ds = load_kscale_native(
+            period,
+            datetime,
+            driving_model,
+            nested_model=nested_model,
+            save_nc=save_nc
+        )
+    elif grid == "0p5deg":
+        ds = load_kscale_0p5deg(
+            period,
+            datetime,
+            driving_model,
+            nested_model=None,
+            plevs=[100,150,200,250,300,400,500,600,700,850,925,1000]
+        )
+    print(ds)
     print("\n\n\nEND.")
