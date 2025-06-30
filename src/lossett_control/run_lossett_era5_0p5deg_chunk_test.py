@@ -59,6 +59,9 @@ if __name__ == "__main__":
     ds_u_3D = ds_u_3D.isel(time=tstep).sel(pressure=plev,method="nearest")
     ds_u_3D = ds_u_3D.expand_dims(dim=["time","pressure"])
 
+    # subset lat & lon to save time
+    ds_u_3D = ds_u_3D.sel(latitude=slice(-10,10),longitude=slice(90,110))
+
     # create date string
     date_str = f"{year:04d}-{month:02d}-{day:02d}"
 
@@ -74,8 +77,7 @@ if __name__ == "__main__":
         ds_u_3D, control_dict
     )
 
-    print("\n\n\nEND.\n")
-    # sys.exit(0)
+    print("\n\n", DR_indicator.length_scale)
 
     # save to NetCDF
     n_l = len(DR_indicator.length_scale)

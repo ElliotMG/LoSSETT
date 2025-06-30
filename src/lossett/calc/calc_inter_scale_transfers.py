@@ -9,15 +9,15 @@ from lossett.filtering.get_integration_kernels import get_integration_kernels
 
 radius_earth = 6.371e6 # radius of Earth in m
 deg_to_m = 110000.0 # conversion of latitudinal degrees to m
-LOSSETT_VN = "0.1"
+LOSSETT_VN = "0.1.1"
 
 def calc_inter_scale_energy_transfer_kinetic(
         ds_u_3D,
         control_dict
-):
+):    
     # extract attributes from input data
     input_attrs = ds_u_3D.attrs
-    
+    print("Input data attributes:", repr(input_attrs))
     # extract control params
     max_r = control_dict["max_r"]
     max_r_units = control_dict["max_r_units"]
@@ -55,6 +55,7 @@ def calc_inter_scale_energy_transfer_kinetic(
 
     # calculate scale increments
     scale_incs = calc_scale_increments(x,y,max_r,verbose=False)
+    scale_incs.r.attrs["units"] = "m"
     r = scale_incs.r
 
     # compute delta u cubed integrated over angles for all |r|
@@ -88,14 +89,14 @@ def calc_inter_scale_energy_transfer_kinetic(
 
     Dl_u = Dl_u.assign_attrs(
         {
-            "long_name": "inter_scale_kinetic_energy_transfer",
+            "long_name": "inter_scale_transfer_of_kinetic_energy",
             "units": "m2 s-3",
             "description": \
             "Transfer of kinetic energy (density) across a length scale L computed using the formalism of "\
             "Duchon and Robert (2000) [DOI 10.1088/0951-7715/13/1/312].",
             "sign_convention": "Positive to smaller scales.",
             "LoSSETT_version": LOSSETT_VN,
-            "input_data_attributes": input_attrs
+            "input_data_attributes": repr(input_attrs)
         }
     ) # should add also kernel_attrs dict (for kernel type, dimensionality, length scale-to-resolution conversion)
     # and integration_attrs dict (for integral approximations e.g. Cartesian vs. spherical, uniform grid etc.)
@@ -273,6 +274,8 @@ def calc_scale_space_integral(integrand, name, length_scales=None, weighting="2D
         )
     integral = xr.concat(integral, "length_scale")
     integral *= (1./4.)
+
+    integral.length_scale.attrs["units"] = r.attrs["units"]
     
     return integral;
 
