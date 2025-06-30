@@ -9,6 +9,7 @@ from lossett.filtering.get_integration_kernels import get_integration_kernels
 
 radius_earth = 6.371e6 # radius of Earth in m
 deg_to_m = 110000.0 # conversion of latitudinal degrees to m
+LOSSETT_VN = "0.1"
 
 def calc_inter_scale_energy_transfer_kinetic(
         ds_u_3D,
@@ -78,8 +79,21 @@ def calc_inter_scale_energy_transfer_kinetic(
     length_scales = r.values[1:len(r)//2]
     # calculare DR
     DR_indicator = calc_scale_space_integral(
-        integrand, name="DR_indicator", length_scales=length_scales, weighting="2D"
+        integrand, length_scales=length_scales, weighting="2D",
+        name="inter_scale_kinetic_energy_transfer"
     ) # should add options for kernel specification
+
+    DR_indicator = DR_indicator.assign_attrs(
+        {
+            "units": "m2 s-3",
+            "description": \
+            "Transfer of kinetic energy (density) across a length scale L computed using the formalism of "\
+            "Duchon and Robert (2000) [DOI HERE].",
+            "sign_convention": "Positive to smaller scales.",
+            "LoSSETT_version": LOSSETT_VN
+        }
+    ) # should add also kernel_attrs dict (for kernel type, dimensionality, length scale-to-resolution conversion)
+    # and integration_attrs dict (for integral approximations e.g. Cartesian vs. spherical, uniform grid etc.)
     
     return DR_indicator;
 
