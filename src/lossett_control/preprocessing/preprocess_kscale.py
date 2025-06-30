@@ -80,8 +80,10 @@ def load_kscale_native(
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour//12)*12:02d}"
     
     # DYAMOND 3
-    if period == "DYAMOND3":
+    if period == "DYAMOND3": # change to allow also Dy3, D3
         DATA_DIR = os.path.join(DATA_DIR_ROOT,"DYAMOND3_data")
+
+        # specify driving model
         if driving_model == "n2560RAL3":
             DATA_DIR = os.path.join(DATA_DIR,"5km-RAL3")
             dri_mod_str = "n2560_RAL3p3"
@@ -91,22 +93,61 @@ def load_kscale_native(
         elif driving_model == "n1280CoMA9":
             DATA_DIR = os.path.join(DATA_DIR,"10km-CoMA9")
             dri_mod_str = "n1280_CoMA9"
+
+        # specify nested model
         if nested_model is None or nested_model == "glm":
             DATA_DIR = os.path.join(DATA_DIR,"glm","field.pp","apverc.pp")
             nest_mod_str = "glm"
 
         fpath = os.path.join(DATA_DIR,f"{nest_mod_str}.{dri_mod_str}.apverc_{dt_str}.pp")
 
+    #endif
+
+    # DyS and DyW native res. data not yet on GWS DATA, so read from Elliot's GWS USER
+    # root file path = /gws/nopw/j04/kscale/USERS/emg/data/native_res_deterministic/{period}/{model_id}/
+    
     # DYAMOND SUMMER
-    elif period == "DYAMOND_SUMMER":
-        DATA_DIR = os.path.join(DATA_DIR_ROOT, "DATA","outdir_20160801T0000Z")
-        if driving_model == "n1280RAL3":
-            DATA_DIR = os.path.join(DATA_DIR,"DMn1280RAL3")
-        elif driving_model == "n1280GAL9":
-            DATA_DIR = os.path.join(DATA_DIR,"DMn1280GAL9")
+    elif period == "DYAMOND_SUMMER": # change to allow also DyS, DS, DYAMOND1, Dy1, D1
+        # DyS native res. data not yet on GWS, so read from Elliot's scratch
+        #DATA_DIR = os.path.join(DATA_DIR_ROOT, "DATA","outdir_20160801T0000Z")
+        DATA_DIR = "/gws/nopw/j04/kscale/USERS/emg/data/native_res_deterministic/DS"
+
+        start_date = dt.datetime(2016,8,1,0)
+        delta = datetime - start_date
+        hrs_since_start = int(delta.total_seconds()/3600)
+        hr_str = f"{hrs_since_start:03d}"
+
+        # specify driving model
+        if driving_model != "n1280GAL9":
+            print(f"Error! Period {period} has no driving model named {driving_model}.")
+            sys.exit(1)
+        
+        dri_mod_str = "n1280_GAL9"
+
+        # specify nested model
+        if nested_model is None or nested_model == "glm":
+            DATA_DIR = os.path.join(DATA_DIR,"global_n1280_GAL9")
+            nest_mod_str = "glm"
+        elif nested_model == "CTCn2560GAL9":
+            DATA_DIR = os.path.join(DATA_DIR,"CTC_N2560_GAL9")
+            nest_mod_str = "CTC_n2560_GAL9"
+        elif nested_model == "CTCn2560RAL3p2":
+            DATA_DIR = os.path.join(DATA_DIR,"CTC_N2560_RAL3p2")
+            nest_mod_str = "CTC_n2560_RAL3p2"
+        elif nested_model == "CTCkm4p4RAL3p2":
+            DATA_DIR = os.path.join(DATA_DIR,"CTC_N2560_GAL3p2")
+            nest_mod_str = "CTC_km4p4_RAL3p2"
+        else:
+            print(f"Error! Period {period} has no nested model named {nested_model}.")
+            sys.exit(1)
+
+        fpath = os.path.join(DATA_DIR,f"20160801T0000Z_{nest_mod_str}_pverc{hr_str}.pp")
+
+    #endif
+            
 
     # DYAMOND WINTER
-    elif period == "DYAMOND_WINTER":
+    elif period == "DYAMOND_WINTER": # change to allow also DyW, DW, DYAMOND2, Dy2, D2
         DATA_DIR = os.path.join(DATA_DIR_ROOT, "DATA","outdir_20200120T0000Z")
 
     # LOAD u,v,w from PP file using Iris
@@ -153,6 +194,12 @@ def load_kscale_native(
     else:
         return ds;
 
+def global_regrid(field, target_grid):
+    return 0;
+
+def nest_in_global_grid():
+    return 0;
+
 if __name__ == "__main__":
     period=sys.argv[1]
     driving_model = sys.argv[2]
@@ -161,11 +208,14 @@ if __name__ == "__main__":
     month = int(sys.argv[5])
     day = int(sys.argv[6])
     hour = int(sys.argv[7])
+    save_nc = False
     datetime = dt.datetime(year,month,day,hour)
     print("\n\n\nPreprocessing details:")
     print(
         f"\nPeriod: {period}, driving model: {driving_model}, nested_model = {nested_model}, "\
         f"date = {year:04d}-{month:02d}-{day:02d}, hour = {hour:02d}"
     )
-    ds = load_kscale_native(period,datetime,driving_model,nested_model=None,save_nc=True)
+    if nested_model == "none":
+        nested_model=None
+    ds = load_kscale_native(period,datetime,driving_model,nested_model=nested_model,save_nc=save_nc)
     print("\n\n\nEND.")
