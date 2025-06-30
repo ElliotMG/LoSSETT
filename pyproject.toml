@@ -1,6 +1,6 @@
 [project]
 name = "lossett"
-version = "0.1.1"
+version = "0.2"
 description = "A Python package for calculating inter-scale energy transfers in the atmosphere (and other fluids)."
 authors = [
     {name = "Dan Shipley",email = "daniel.shipley@reading.ac.uk"},

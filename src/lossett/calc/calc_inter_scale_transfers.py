@@ -4,17 +4,25 @@ import sys
 import numpy as np
 import dask as da
 import xarray as xr
+from importlib.metadata import version
 # local imports
 from lossett.filtering.get_integration_kernels import get_integration_kernels
 
 radius_earth = 6.371e6 # radius of Earth in m
 deg_to_m = 110000.0 # conversion of latitudinal degrees to m
-LOSSETT_VN = "0.1.1"
+LOSSETT_VN = version("lossett")
 
 def calc_inter_scale_energy_transfer_kinetic(
         ds_u_3D,
         control_dict
-):    
+):
+    print(
+        "\n\n\n"\
+        "################################################################################"\
+        f"### LoSSETT vn. {LOSSETT_VN} ###################################################"\
+        "### Function: calc_inter_scale_energy_transfer_kinetic #########################"\
+        "################################################################################"
+    )
     # extract attributes from input data
     input_attrs = ds_u_3D.attrs
     print("Input data attributes:", repr(input_attrs))
