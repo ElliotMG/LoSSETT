@@ -15,7 +15,7 @@ Within `src`:
 * `lossett/calc` contains the core computational routines for calculating inter-scale energy transfers.
 * `lossett/filtering` contains utilities for filtering and integration.
 * `lossett_control/control` contains Python and Bash scripts for orchestrating the execution of LoSSETT workflows, including on test data.
-* `lossett_control/prepreocessing` contains Python scripts for pre-procesing the data to match the specific cases in `lossett_control/control`.
+* `lossett_control/prepreocessing` contains Python scripts for pre-processing data to match the specific cases in `lossett_control/control`.
 * `lossett_plotting` contains various example plotting Python scripts and iPython notebooks.
 
 ## Prerequisites
@@ -23,7 +23,7 @@ Current distribution of python (Python 3) - built on `xarray` with `matplotlib` 
 
 ## Installation
 
-As a user, activate a suitable environment then pip install:
+As a user: activate a suitable environment then pip install:
 
 ```bash
 pip install  git+https://github.com/ElliotMG/LoSSETT.git
@@ -32,7 +32,7 @@ pip install  git+https://github.com/ElliotMG/LoSSETT.git
 As a developer: fork then clone the repository (please create a branch before making any changes!), activate a suitable Python environment, navigate to your LoSSETT directory and
 
 ```bash
-pip install -e
+pip install -e .
 ```
 
 This will install as the user installation but using the editable cloned code. Please commit code improvements and discuss merging with the master branch with Elliot McKinnon-Gray, Dan Shipley, and other users.
