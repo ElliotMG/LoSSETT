@@ -1,8 +1,10 @@
 # LoSSETT (Local Scale-to-Scale Energy Transfer Tool)
 
-LoSSETT (the Local Scale-to-Scale Energy Transfer Tool) is a Python package for calculating local energy transfer across specified length scales. The energy transfer from scales larger than $\ell$ to scales smaller than $\ell$ is derived in [Duchon & Robert (2000)](https://iopscience.iop.org/article/10.1088/0951-7715/13/1/312) to be:
+LoSSETT (the Local Scale-to-Scale Energy Transfer Tool) is a Python package for calculating local energy transfer across specified length scales. The kinetic energy transfer from scales larger than $\ell$ to scales smaller than $\ell$ is derived in [Duchon & Robert (2000)](https://iopscience.iop.org/article/10.1088/0951-7715/13/1/312) to be:
 
 $$\mathcal{D}_{\ell} := \frac{1}{4} \int \nabla G _\ell(\mathbf{r}) \cdot \delta \mathbf{u} |\delta \mathbf{u}|^2 \mathrm{d}^d \mathbf{r}.$$
+
+Here $\delta \mathbf{u} := \mathbf{u}(\mathbf{x}+\mathbf{r}) - \mathbf{u}(\mathbf{x})$ is a velocity increment, and $G _\ell(\mathbf{r})$ is a filter kernel with characteristic length scale $\ell$. Similar expressions may be derived for the inter-scale transfer of any quadratic scalar (e.g. buoyancy variance, moisture variance).
 
 With thanks to Valerio Lembo (ISAC-CNR) for sharing some of the original MATLAB code developed with colleagues at CNRS ([Kuzzay et al. 2015](https://pubs.aip.org/aip/pof/article-abstract/27/7/075105/103779), [Faranda et al. 2018](https://journals.ametsoc.org/view/journals/atsc/75/7/jas-d-17-0114.1.xml)). Development work funded as part of the UPSCALE project at the University of Reading funded by the Met Office.
 
