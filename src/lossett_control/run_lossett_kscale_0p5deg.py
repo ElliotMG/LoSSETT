@@ -160,7 +160,7 @@ if __name__ == "__main__":
     L_max = Dl_u.length_scale[-1].values/1000
     fpath = os.path.join(
         OUT_DIR,
-        f"{nest_mod_id}.{dri_mod_id}_inter_scale_transfer_of_kinetic_energy_"\
+        f"{nest_mod_id}.{dri_mod_id}_0p5deg_inter_scale_transfer_of_kinetic_energy_"\
         f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{dt_str}{subset_str}{p_str}{t_str}.nc"
     )
     print(f"\n{Dl_u.name}:\n",Dl_u)

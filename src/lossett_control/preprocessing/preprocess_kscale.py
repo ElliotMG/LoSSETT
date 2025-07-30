@@ -8,9 +8,39 @@ import pandas as pd
 import datetime as dt
 import iris
 
+def embed_inner_grid_in_global(outer, inner, type="channel", method="interp"):
+    thresh=1e10
+    if method == "interp":
+        _embedded = inner.combine_first(outer)
+        # replace daft values with nan
+        _embedded = _embedded.where(_embedded < thresh, np.nan)
+        _embedded = _embedded.chunk(
+            chunks={"latitude":len(_embedded.latitude),
+                    "longitude":len(_embedded.longitude)}
+        ).compute()
+        embedded = _embedded.interpolate_na(dim="latitude",method="cubic")
+        if type == "lam":
+            embedded = _embedded.interpolate_na(dim="longitude",method="cubic")
+    elif method == "replace":
+        # check that magnitude of boundary values is sensible
+        if inner.isel(latitude=0) >= 1e10 or inner.isel(latitude=-1) >= 1e10:
+            # remove values closest to latudinal boundaries
+            inner = inner.isel(latitude=slice(1,-1))
+        #endif
+        if inner.isel(longitude=0) >= 1e10 or inner.isel(longitude=-1) >= 1e10:
+            # remove values closest to longitudinal boundaries
+            inner = inner.isel(longitude=slice(1,-1))
+        #endif
+        embedded = inner.combine_first(outer)
+    #endif
+    
+    return embedded;
+
 def setup_vars_DS(return_dates=False,grid="0p5deg"):
-    # This currently uses the already-processed DS data in Elliot's directory;
-    # would be better to use the data in $KSCALE/DATA instead
+    # DEPRECATED
+    # This function uses the already-processed DS data in Elliot's directory;
+    # it is better to use the data in $KSCALE/DATA instead
+    # see load_kscale_0p5deg OR load_kscale_native
     
     # 1. data directory
     data_dir = "/gws/nopw/j04/kscale/USERS/emg/data/DYAMOND_Summer/"
@@ -31,11 +61,12 @@ def setup_vars_DS(return_dates=False,grid="0p5deg"):
     else:
         return var_names, data_dir;
 
-def setup_vars_DW(return_dates=False,grid="0p5deg"):
-
-    return 0;
-
 def load_kscale(simid, period, grid):
+    # DEPRECATED
+    # This function uses the already-processed DS data in Elliot's directory;
+    # it is better to use the data in $KSCALE/DATA instead
+    # see load_kscale_0p5deg OR load_kscale_native
+    
     tsteps_per_day = 8
     if period == "DS":
         var_names, data_dir, dates = setup_vars_DS(return_dates=True,grid=grid)
@@ -158,7 +189,9 @@ def load_kscale_0p5deg(
             ),
             drop_variables=["forecast_reference_time","forecast_period"],
             mask_and_scale=True
-        ).assign_coords({"pressure":plev}).rename({"x_wind":"u","y_wind":"v","upward_air_velocity":"w"})
+        ).assign_coords({"pressure":np.float32(plev)}).rename(
+            {"x_wind":"u","y_wind":"v","upward_air_velocity":"w"}
+        )
         ds_u_3D.append(ds[["u","v","w"]])
     ds_u_3D = xr.concat(ds_u_3D,dim="pressure")
     
@@ -194,6 +227,36 @@ def load_kscale_native(
         if nested_model is None or nested_model == "glm":
             DATA_DIR = os.path.join(DATA_DIR,"glm","field.pp","apverc.pp")
             nest_mod_str = "glm"
+        elif driving_model != "n1280GAL9":
+            print(f"Error! Driving model {dri_mod_str} has no nested models.")
+            sys.exit(1)
+        elif nested_model == "CTC_km4p4_RAL3":
+            DATA_DIR = os.path.join(DATA_DIR,"CTC_km4p4_RAL3P3","field.pp","apverc.pp")
+            nest_mod_str = "CTC_km4p4_RAL3P3"
+        elif nested_model == "Africa_km4p4_RAL3":
+            DATA_DIR = os.path.join(DATA_DIR,"Africa_km4p4_RAL3P3","field.pp","apverc.pp")
+            nest_mod_str = "Africa_km4p4_RAL3P3"
+        elif nested_model == "SAmer_km4p4_RAL3":
+            DATA_DIR = os.path.join(DATA_DIR,"SAmer_km4p4_RAL3P3","field.pp","apverc.pp")
+            nest_mod_str = "SAmer_km4p4_RAL3P3"
+        elif nested_model == "SEA_km4p4_RAL3":
+            DATA_DIR = os.path.join(DATA_DIR,"SEA_km4p4_RAL3P3","field.pp","apverc.pp")
+            nest_mod_str = "SEA_km4p4_RAL3P3"
+        elif nested_model == "CTC_km4p4_CoMA9":
+            DATA_DIR = os.path.join(DATA_DIR,"CTC_km4p4_CoMA9_TBv1","field.pp","apverc.pp")
+            nest_mod_str = "CTC_km4p4_CoMA9_TBv1"
+        elif nested_model == "Africa_km4p4_CoMA9":
+            DATA_DIR = os.path.join(DATA_DIR,"Africa_km4p4_CoMA9_TBv1","field.pp","apverc.pp")
+            nest_mod_str = "Africa_km4p4_CoMA9_TBv1"
+        elif nested_model == "SEA_km4p4_CoMA9":
+            DATA_DIR = os.path.join(DATA_DIR,"SEA_km4p4_CoMA9_TBv1","field.pp","apverc.pp")
+            nest_mod_str = "SEA_km4p4_CoMA9_TBv1"
+        elif nested_model == "SAmer_km4p4_CoMA9":
+            DATA_DIR = os.path.join(DATA_DIR,"SAmer_km4p4_CoMA9_TBv1","field.pp","apverc.pp")
+            nest_mod_str = "SAmer_km4p4_CoMA9_TBv1"
+        else:
+            print(f"Nested model {nested_model} not yet supported (or does not exist).")
+            sys.exit(1)
 
         fpath = os.path.join(DATA_DIR,f"{nest_mod_str}.{dri_mod_str}.apverc_{dt_str}.pp")
 
@@ -224,13 +287,13 @@ def load_kscale_native(
         if nested_model is None or nested_model == "glm":
             DATA_DIR = os.path.join(DATA_DIR,"global_n1280_GAL9")
             nest_mod_str = "glm"
-        elif nested_model == "CTCn2560GAL9":
+        elif nested_model == "CTC_n2560_GAL9":
             DATA_DIR = os.path.join(DATA_DIR,"CTC_N2560_GAL9")
             nest_mod_str = "CTC_n2560_GAL9"
-        elif nested_model == "CTCn2560RAL3p2":
+        elif nested_model == "CTC_n2560_RAL3":
             DATA_DIR = os.path.join(DATA_DIR,"CTC_N2560_RAL3p2")
             nest_mod_str = "CTC_n2560_RAL3p2"
-        elif nested_model == "CTCkm4p4RAL3p2":
+        elif nested_model == "CTC_km4p4_RAL3":
             DATA_DIR = os.path.join(DATA_DIR,"CTC_N2560_GAL3p2")
             nest_mod_str = "CTC_km4p4_RAL3p2"
         else:
@@ -277,7 +340,7 @@ def load_kscale_native(
         from pathlib import Path
         #SAVE_DIR = "/work/scratch-pw2/dship/LoSSETT/preprocessed_kscale_data"
         #SAVE_DIR = "/gws/nopw/j04/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data"
-        SAVE_DIR = "/work/scratch-nopw2/dship/LoSSETT/preprocessed_kscale_data"
+        SAVE_DIR = f"/work/scratch-nopw2/dship/LoSSETT/preprocessed_kscale_data/{period}"
         Path(SAVE_DIR).mkdir(parents=True,exist_ok=True)
         fpath = os.path.join(SAVE_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_{dt_str}.nc")
         if not os.path.exists(fpath):
@@ -288,12 +351,6 @@ def load_kscale_native(
         return ds, data_iris;
     else:
         return ds;
-
-def global_regrid(field, target_grid):
-    return 0;
-
-def nest_in_global_grid():
-    return 0;
 
 if __name__ == "__main__":
     period=sys.argv[1]
@@ -306,13 +363,17 @@ if __name__ == "__main__":
     hour = int(sys.argv[8])
     save_nc = False
     datetime = dt.datetime(year,month,day,hour)
+    #plevs = [100,150,200,250,300,400,500,600,700,850,925,1000]
+    plevs = [1000]
     print("\n\n\nPreprocessing details:")
     print(
         f"\nPeriod: {period}, driving model: {driving_model}, nested_model = {nested_model}, "\
         f"grid = {grid}, date = {year:04d}-{month:02d}-{day:02d}, hour = {hour:02d}"
     )
-    if nested_model == "none":
-        nested_model=None
+    
+    if nested_model in ["None","none","glm","global"]:
+        nested_model = "glm"
+        
     if grid == "native":
         ds = load_kscale_native(
             period,
@@ -322,12 +383,43 @@ if __name__ == "__main__":
             save_nc=save_nc
         )
     elif grid == "0p5deg":
-        ds = load_kscale_0p5deg(
+        ds_inner = load_kscale_0p5deg(
             period,
             datetime,
             driving_model,
-            nested_model=None,
-            plevs=[100,150,200,250,300,400,500,600,700,850,925,1000]
+            nested_model=nested_model,
+            plevs=plevs
         )
-    print(ds)
+        ds_outer = load_kscale_0p5deg(
+            period,
+            datetime,
+            driving_model,
+            nested_model="glm",
+            plevs=plevs
+        )
+    
+    print("\n\nInner:\n",ds_inner)
+    print("\n\nOuter:\n",ds_outer)
+    ds_embed_interp = embed_inner_grid_in_global(
+        ds_outer.isel(time=0).drop_vars("time"),
+        ds_inner.isel(time=0).drop_vars("time"),
+        method="interp"
+    )
+    ds_embed_replace = embed_inner_grid_in_global(
+        ds_outer.isel(time=0).drop_vars("time"),
+        ds_inner.isel(time=0).drop_vars("time"),
+        method="replace"
+    )
+
+    import matplotlib.pyplot as plt
+    plt.figure()
+    ds_embed_interp.u.plot()
+    plt.figure()
+    (ds_embed_interp-ds_outer.isel(time=0)).u.plot()
+    plt.figure()
+    ds_embed_replace.u.plot()
+    plt.figure()
+    (ds_embed_replace-ds_outer.isel(time=0)).u.plot()
+    plt.show()
+    
     print("\n\n\nEND.")
