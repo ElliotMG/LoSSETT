@@ -17,6 +17,7 @@ dependencies = [
     "datetime",
     "matplotlib",
     "cartopy",
+    "pillow>=11.3.0",
     "mo_pack @ git+https://github.com/SciTools/mo_pack.git"
 ]
 packages = [
