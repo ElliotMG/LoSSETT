@@ -16,7 +16,8 @@ if __name__ == "__main__":
     period = sys.argv[1]
     dri_mod_id = sys.argv[2]
     nest_mod_id = sys.argv[3]
-    tsteps_per_day = 8
+    #tsteps_per_day = 8
+    tsteps_per_file = 4
     lon_bound_field = "periodic"
     lat_bound_field = np.nan
 
@@ -33,7 +34,6 @@ if __name__ == "__main__":
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour//12)*12:02d}"
 
     # calculation specification
-    load_nc = True
     chunk_latlon = False
     subset_lat = True
     max_r_deg = float(sys.argv[8])
@@ -41,8 +41,14 @@ if __name__ == "__main__":
     tchunks = 1
     pchunks = 1
     prec = 1e-10
+
+    # output directory
+    OUT_DIR = sys.argv[9]
+    Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
+
+    # optional arguments
     try:
-        tstep = int(sys.argv[9])
+        tstep = int(sys.argv[10])
     except ValueError:
         tstep = None
         single_t = False
@@ -50,16 +56,12 @@ if __name__ == "__main__":
         single_t = True
 
     try:
-        plev = int(sys.argv[10])
+        plev = int(sys.argv[11])
     except ValueError:
         plev = None
         single_p = False
     else:
         single_p = True
-
-    # output directory
-    OUT_DIR = sys.argv[11]
-    Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
     try:
         load_nc = sys.argv[12]
@@ -104,8 +106,7 @@ if __name__ == "__main__":
 
     # open data
     if load_nc:
-        #DATA_DIR = "/work/scratch-pw2/dship/LoSSETT/preprocessed_kscale_data"
-        DATA_DIR = "/work/scratch-nopw2/dship/LoSSETT/preprocessed_kscale_data"
+        DATA_DIR = "/work/scratch-pw2/dship/LoSSETT/preprocessed_kscale_data"
         if dri_mod_id == "n2560RAL3":
             dri_mod_str = "n2560_RAL3p3"
         fpath = os.path.join(DATA_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_{dt_str}.nc")
@@ -122,9 +123,13 @@ if __name__ == "__main__":
         ds_u_3D = ds_u_3D.expand_dims(dim="time")
         t_str=f"_tstep{tstep}"
     else:
-        # subset time; chunk time
-        t_str = f"_tstep0-{tsteps-1}"
-        ds_u_3D = ds_u_3D.isel(time=slice(0,tsteps)).chunk(chunks={"time":tchunks})
+        t_str = ""
+        if tsteps != tsteps_per_file:
+            # subset time
+            t_str = f"_tstep0-{tsteps-1}"
+            ds_u_3D = ds_u_3D.isel(time=slice(0,tsteps))
+        # chunk time
+        ds_u_3D = ds_u_3D.chunk(chunks={"time":tchunks})
 
     # subset single pressure level
     if single_p:
@@ -132,9 +137,9 @@ if __name__ == "__main__":
         ds_u_3D = ds_u_3D.expand_dims(dim="pressure")
         p_str = f"_p{plev:04d}"
     else:
+        p_str = ""
         plevs = [50,200,500,700,850]#[200,850]
         ds_u_3D = ds_u_3D.sel(pressure=plevs,method="nearest").chunk(chunks={"pressure":pchunks})
-        p_str = ""
 
     # chunk lat & lon (TEST!)
     if chunk_latlon:
@@ -156,18 +161,21 @@ if __name__ == "__main__":
     print("\nInput data:\n",ds_u_3D)
     
     # calculate kinetic DR indicator
-    DR_indicator = calc_inter_scale_energy_transfer_kinetic(
+    Dl_u = calc_inter_scale_energy_transfer_kinetic(
         ds_u_3D, control_dict
     )
 
     # save to NetCDF
-    n_l = len(DR_indicator.length_scale)
+    n_l = len(Dl_u.length_scale)
+    L_min = Dl_u.length_scale[0].values/1000
+    L_max = Dl_u.length_scale[-1].values/1000
     fpath = os.path.join(
         OUT_DIR,
-        f"{nest_mod_id}.{dri_mod_id}_inter_scale_energy_transfer_kinetic_Nl_{n_l:02d}_{dt_str}{subset_str}{p_str}{t_str}.nc"
+        f"{nest_mod_id}.{dri_mod_id}_inter_scale_transfer_of_kinetic_energy_"\
+        f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{dt_str}{subset_str}{p_str}{t_str}.nc"
     )
-    print(f"\n{DR_indicator.name}:\n",DR_indicator)
-    print(f"\nSaving {DR_indicator.name} to NetCDF at location {fpath}.")
-    DR_indicator.to_netcdf(fpath)
+    print(f"\n{Dl_u.name}:\n",Dl_u)
+    print(f"\nSaving {Dl_u.name} to NetCDF at location {fpath}.")
+    Dl_u.to_netcdf(fpath)
 
     print("\n\n\nEND.\n")
