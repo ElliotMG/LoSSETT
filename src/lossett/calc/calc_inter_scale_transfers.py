@@ -18,10 +18,10 @@ def calc_inter_scale_energy_transfer_kinetic(
 ):
     print(
         "\n\n\n"\
-        "################################################################################"\
-        f"### LoSSETT vn. {LOSSETT_VN} ###################################################"\
-        "### Function: calc_inter_scale_energy_transfer_kinetic #########################"\
-        "################################################################################"
+        "################################################################################\n"\
+        f"### LoSSETT vn. {LOSSETT_VN} ############################################################\n"\
+        "### Function: calc_inter_scale_energy_transfer_kinetic #########################\n"\
+        "################################################################################\n"
     )
     # extract attributes from input data
     input_attrs = ds_u_3D.attrs
@@ -241,7 +241,9 @@ def calc_increment_integrand(
             phi_integrand.append(_phi_integrand)
 
         phi_integrand = xr.concat(phi_integrand,"angle")
+        # add strict nan handling switch?
         phi_integral = phi_integrand.integrate("angle").compute()
+        phi_integral = phi_integrand.fillna(0).integrate("angle").compute()
         r_integrand.append(phi_integral)
         if verbose:
             print("\n", phi_integrand)
