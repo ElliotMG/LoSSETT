@@ -7,37 +7,39 @@ import numpy as np
 import xarray as xr
 import datetime as dt
 
-from lossett_control.preprocessing.preprocess_kscale import load_kscale_native
+from lossett_control.preprocessing.preprocess_kscale import load_kscale_native, \
+    parse_period_id, parse_dri_mod_id, parse_nest_mod_id
 from lossett.calc.calc_inter_scale_transfers import calc_inter_scale_energy_transfer_kinetic
 
 if __name__ == "__main__":
     # should take all of these from command line or an options file
     # simulation specification
-    period = sys.argv[1]
-    dri_mod_id = sys.argv[2]
-    nest_mod_id = sys.argv[3]
+    _period = sys.argv[1]
+    _dri_mod_id = sys.argv[2]
+    _nest_mod_id = sys.argv[3]
     #tsteps_per_day = 8
     tsteps_per_file = 4 #required
     lon_bound_field = "periodic"
     lat_bound_field = np.nan
 
-    if nest_mod_id in ["None","none","glm"]:
-        nest_mod_id = "glm"
-        nest_mod_str = "glm"
+    # parse period, driving model, nested model
+    period = parse_period_id(_period)
+    dri_mod_id, dri_mod_str = parse_dri_mod_id(period,_dri_mod_id)
+    nest_mod_id, nest_mod_str = parse_nest_mod_id(period,dri_mod_id,_nest_mod_id)
 
     # day & hour of simulation
     year = int(sys.argv[4])
     month = int(sys.argv[5])
     day = int(sys.argv[6])
-    hour = int(sys.argv[7]) # optional
+    hour = int(sys.argv[7])
     datetime = dt.datetime(year,month,day,hour)
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour//12)*12:02d}"
 
     # calculation specification
     chunk_latlon = False
-    subset_lat = True # should be optional argument!
-    latmin = -50
-    latmax = 50
+    subset_lat = False # should be optional argument!
+    latmin = -40 #-50
+    latmax = 26 #50
     max_r_deg = float(sys.argv[8]) # required
     tsteps = 4
     tchunks = 1
@@ -78,8 +80,8 @@ if __name__ == "__main__":
     print(
         "\n\nInput data specifications:\n"\
         f"period \t\t= {period}\n"\
-        f"driving_model \t= {dri_mod_id}\n"\
-        f"nested_model \t= {nest_mod_id}\n"\
+        f"driving_model \t= {dri_mod_str} (ID: {dri_mod_id})\n"\
+        f"nested_model \t= {nest_mod_str} (ID: {nest_mod_id})\n"\
         f"datetime \t= {dt_str}\n"\
     )
     print(
@@ -108,12 +110,11 @@ if __name__ == "__main__":
 
     # open data
     if load_nc:
-        DATA_DIR = "/work/scratch-pw2/dship/LoSSETT/preprocessed_kscale_data"
-        if dri_mod_id == "n2560RAL3":
-            dri_mod_str = "n2560_RAL3p3"
-        fpath = os.path.join(DATA_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_{dt_str}.nc")
+        DATA_DIR = \
+            "/gws/nopw/j04/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data/DYAMOND_SUMMER/n1280_regrid"
+        fpath = os.path.join(DATA_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_{dt_str}_n1280.nc")
         print(f"\nLoading via tmp NetCDF from {fpath}")
-        ds_u_3D = xr.open_dataset(fpath)
+        ds_u_3D = xr.open_dataset(fpath,mask_and_scale=True,drop_variables="leadtime")
     else:
         ds_u_3D = load_kscale_native(
             period,datetime,driving_model=dri_mod_id,nested_model=nest_mod_id
@@ -155,7 +156,7 @@ if __name__ == "__main__":
     if subset_lat:
         ds_u_3D = ds_u_3D.sel(latitude=slice(latmin,latmax))
         # modify to check sign of latmin, latmax to correctly infer South/North
-        subset_str = f"_{latmin:02d}S-{latmax:02d}N"
+        subset_str = f"_{np.abs(latmin):02d}S-{latmax:02d}N"
 
     if nest_mod_id == "glm":
         print(f"\n\n\nCalculating {period} global {dri_mod_id} DR indicator for {dt_str}")
@@ -175,8 +176,8 @@ if __name__ == "__main__":
     L_max = Dl_u.length_scale[-1].values/1000
     fpath = os.path.join(
         OUT_DIR,
-        f"{nest_mod_id}.{dri_mod_id}_inter_scale_transfer_of_kinetic_energy_"\
-        f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{dt_str}{subset_str}{p_str}{t_str}.nc"
+        f"{nest_mod_str}.{dri_mod_str}_inter_scale_transfer_of_kinetic_energy_"\
+        f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{dt_str}{subset_str}{p_str}{t_str}_n1280.nc"
     )
     print(f"\n{Dl_u.name}:\n",Dl_u)
     print(f"\nSaving {Dl_u.name} to NetCDF at location {fpath}.")
