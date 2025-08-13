@@ -8,6 +8,146 @@ import pandas as pd
 import datetime as dt
 import iris
 
+DyS = ["dyamondsummer","dyamonds","dyamond1","dys","dy1","ds","d1"]
+
+DyW = ["dyamondwinter","dyamondw","dyamond2","dyw","dy2","dw","d2"]
+
+Dy3 = ["dyamond3","dy3","d3"]
+
+dri_mod_str_dict = {
+    "DYAMOND_SUMMER": {
+        "n1280ral3": "n1280_RAL3p2",
+        "n1280gal9": "n1280_GAL9"
+    },
+    "DYAMOND_WINTER": {
+        "n1280ral3": "n1280_RAL3p2",
+        "n1280gal9": "n1280_GAL9"
+    },
+    "DYAMOND3": {
+        "n2560ral3": "n1280_RAL3p2",
+        "n1280gal9": "n1280_GAL9",
+        "n1280coma9": "n1280_CoMA9"
+    }
+}
+
+nest_mod_str_dict = {
+    "DYAMOND_SUMMER": {
+        "n1280ral3": {
+            "glm": "glm",
+            "channeln2560ral3": "channel_n2560_RAL3p2",
+            "channeln2560gal9": "channel_n2560_GAL9",
+            "channelkm4p4ral3": "channel_km4p4_RAL3p2",
+            "lamafricakm2p2ral3": "lam_africa_km2p2_RAL3p2",
+            "lamindiakm2p2ral3": "lam_india_km2p2_RAL3p2",
+            "lamsamericakm2p2ral3": "lam_samerica_km2p2_RAL3p2",
+            "lamseakm2p2ral3": "lam_sea_km2p2_RAL3p2"
+        },
+        "n1280gal9": {
+            "glm": "glm",
+            "channeln2560ral3": "channel_n2560_RAL3p2",
+            "channeln2560gal9": "channel_n2560_GAL9",
+            "channelkm4p4ral3": "channel_km4p4_RAL3p2",
+            "lamafricakm2p2ral3": "lam_africa_km2p2_RAL3p2",
+            "lamafricakm4p4ral3": "lam_africa_km4p4_RAL3p2",
+            "lamindiakm2p2ral3": "lam_india_km2p2_RAL3p2",
+            "lamsamericakm2p2ral3": "lam_samerica_km2p2_RAL3p2",
+            "lamsamericakm4p4ral3": "lam_samerica_km4p4_RAL3p2",
+            "lamseakm2p2ral3": "lam_sea_km2p2_RAL3p2",
+            "lamseakm4p4ral3": "lam_sea_km4p4_RAL3p2"
+        },
+    },
+    "DYAMOND_WINTER": {
+        "n1280ral3": {
+            "glm": "glm",
+            "channeln2560ral3": "channel_n2560_RAL3p2",
+            "channeln2560gal9": "channel_n2560_GAL9",
+            "channelkm4p4ral3": "channel_km4p4_RAL3p2",
+            "lamafricakm2p2ral3": "lam_africa_km2p2_RAL3p2",
+            "lamindiakm2p2ral3": "lam_india_km2p2_RAL3p2",
+            "lamsamericakm2p2ral3": "lam_samerica_km2p2_RAL3p2",
+            "lamseakm2p2ral3": "lam_sea_km2p2_RAL3p2"
+        },
+        "n1280gal9": {
+            "glm": "glm",
+            "channeln2560ral3": "channel_n2560_RAL3p2",
+            "channeln2560gal9": "channel_n2560_GAL9",
+            "channelkm4p4ral3": "channel_km4p4_RAL3p2",
+            "lamafricakm2p2ral3": "lam_africa_km2p2_RAL3p2",
+            "lamafricakm4p4ral3": "lam_africa_km4p4_RAL3p2",
+            "lamindiakm2p2ral3": "lam_india_km2p2_RAL3p2",
+            "lamsamericakm2p2ral3": "lam_samerica_km2p2_RAL3p2",
+            "lamsamericakm4p4ral3": "lam_samerica_km4p4_RAL3p2",
+            "lamseakm2p2ral3": "lam_sea_km2p2_RAL3p2",
+            "lamseakm4p4ral3": "lam_sea_km4p4_RAL3p2"
+        },
+    },
+    "DYAMOND3": {
+        "n2560ral3": {
+            "glm": "glm"
+        },
+        "n1280gal9": {
+            "glm": "glm",
+            "channelkm4p4ral3": "channel_km4p4_RAL3p3",
+            "channelkm4p4coma9": "channel_km4p4_CoMA9",
+            "lamafricakm4p4ral3": "lam_africa_km4p4_RAL3p3",
+            "lamafricakm4p4coma9": "lam_africa_km4p4_CoMA9",
+            "lamsamericakm4p4ral3": "lam_samerica_km4p4_RAL3p2",
+            "lamsamericakm4p4coma9": "lam_samerica_km4p4_CoMA9",
+            "lamseakm4p4ral3": "lam_sea_km4p4_RAL3p2",
+            "lamseakm4p4coma9": "lam_sea_km4p4_CoMA9"
+        },
+        "n1280coma9": {
+            "glm": "glm"
+        },
+    }
+}
+
+def parse_period_id(_period):
+    # parse period
+    period = _period.lower().replace("_","")
+
+    if period in DyS:
+        period = "DYAMOND_SUMMER"
+    elif period in DyW:
+        period = "DYAMOND_WINTER"
+    elif period in Dy3:
+        period = "DYAMOND3"
+    else:
+        print(f"Error: No period matching ID {_period}.")
+        sys.exit(1)
+    return period;
+
+def parse_dri_mod_id(period,_dri_mod_id):
+    # parse driving model ID
+    dri_mod_id = _dri_mod_id.lower().replace("_","")
+
+    # get driving model string
+    try:
+        dri_mod_str = dri_mod_str_dict[period][dri_mod_id]
+    except:
+        print(f"Error: No global model matching ID {_dri_mod_id} for period {period}.")
+        sys.exit(1)
+    print(f"\n\n{dri_mod_id},{dri_mod_str}")
+    
+    return dri_mod_id, dri_mod_str;
+
+def parse_nest_mod_id(period,dri_mod_id,_nest_mod_id):
+    # parse nested model ID
+    nest_mod_id = _nest_mod_id.lower().replace("_","")
+    if nest_mod_id in ["none","glm"]:
+        nest_mod_id = "glm"
+    elif nest_mod_id.startswith("ctc"):
+        nest_mod_id = "channel"+nest_mod_id.removeprefix("ctc")
+
+    # get nested model string
+    try:
+        nest_mod_str = nest_mod_str_dict[period][dri_mod_id][nest_mod_id]
+    except:
+        print(f"Error: No nested model matching ID {_nest_mod_id} for period {period} driven by {dri_mod_str}.")
+        sys.exit(1)
+        
+    return nest_mod_id, nest_mod_str;
+
 def embed_inner_grid_in_global(outer, inner, type="channel", method="interp"):
     thresh=1e10
     if method == "interp":
@@ -110,6 +250,7 @@ def load_kscale_0p5deg(
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}"
 
     # should add a check that dates are in correct bounds!
+    # should parse period, driving_model, nested_model here
 
     # DYAMOND SUMMER
     if period == "DYAMOND_SUMMER":
@@ -207,6 +348,9 @@ def load_kscale_native(
 ):
     DATA_DIR_ROOT = "/gws/nopw/j04/kscale/"
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour//12)*12:02d}"
+    
+    # should add a check that dates are in correct bounds!
+    # should parse period, driving_model, nested_model here
     
     # DYAMOND 3
     if period == "DYAMOND3": # change to allow also Dy3, D3
@@ -335,12 +479,15 @@ def load_kscale_native(
     uvw = [xr.DataArray.from_iris(vel_cpt) for vel_cpt in [u,v,w]]
     ds = xr.merge(uvw)
 
+    # add units to pressure coord
+    ds.pressure.attrs["units"] = "hPa"
+
     # save NetCDF to scratch
     if save_nc:
         from pathlib import Path
         #SAVE_DIR = "/work/scratch-pw2/dship/LoSSETT/preprocessed_kscale_data"
-        #SAVE_DIR = "/gws/nopw/j04/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data"
-        SAVE_DIR = f"/work/scratch-nopw2/dship/LoSSETT/preprocessed_kscale_data/{period}"
+        SAVE_DIR = f"/gws/nopw/j04/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data/{period}"
+        #SAVE_DIR = f"/work/scratch-nopw2/dship/LoSSETT/preprocessed_kscale_data/{period}"
         Path(SAVE_DIR).mkdir(parents=True,exist_ok=True)
         fpath = os.path.join(SAVE_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_{dt_str}.nc")
         if not os.path.exists(fpath):
@@ -361,10 +508,10 @@ if __name__ == "__main__":
     month = int(sys.argv[6])
     day = int(sys.argv[7])
     hour = int(sys.argv[8])
-    save_nc = False
+    save_nc = True
     datetime = dt.datetime(year,month,day,hour)
     #plevs = [100,150,200,250,300,400,500,600,700,850,925,1000]
-    plevs = [1000]
+    plevs = [200]
     print("\n\n\nPreprocessing details:")
     print(
         f"\nPeriod: {period}, driving model: {driving_model}, nested_model = {nested_model}, "\
@@ -397,6 +544,7 @@ if __name__ == "__main__":
             nested_model="glm",
             plevs=plevs
         )
+    sys.exit(0)
     
     print("\n\nInner:\n",ds_inner)
     print("\n\nOuter:\n",ds_outer)
