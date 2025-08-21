@@ -161,6 +161,8 @@ def embed_inner_grid_in_global(outer, inner, type="channel", method="interp"):
         embedded = _embedded.interpolate_na(dim="latitude",method="cubic")
         if type == "lam":
             embedded = _embedded.interpolate_na(dim="longitude",method="cubic")
+        if "time" in embedded.dims:
+            embedded = embedded.interpolate_na(dim="time", method="cubic")
     elif method == "replace":
         # check that magnitude of boundary values is sensible
         if inner.isel(latitude=0) >= 1e10 or inner.isel(latitude=-1) >= 1e10:
@@ -508,7 +510,7 @@ if __name__ == "__main__":
     month = int(sys.argv[6])
     day = int(sys.argv[7])
     hour = int(sys.argv[8])
-    save_nc = True
+    save_nc = False
     datetime = dt.datetime(year,month,day,hour)
     #plevs = [100,150,200,250,300,400,500,600,700,850,925,1000]
     plevs = [200]
@@ -544,30 +546,30 @@ if __name__ == "__main__":
             nested_model="glm",
             plevs=plevs
         )
-    sys.exit(0)
+    # sys.exit(0)
     
     print("\n\nInner:\n",ds_inner)
     print("\n\nOuter:\n",ds_outer)
     ds_embed_interp = embed_inner_grid_in_global(
-        ds_outer.isel(time=0).drop_vars("time"),
-        ds_inner.isel(time=0).drop_vars("time"),
+        ds_outer,
+        ds_inner,
         method="interp"
     )
     ds_embed_replace = embed_inner_grid_in_global(
-        ds_outer.isel(time=0).drop_vars("time"),
-        ds_inner.isel(time=0).drop_vars("time"),
+        ds_outer,
+        ds_inner,
         method="replace"
     )
 
     import matplotlib.pyplot as plt
     plt.figure()
-    ds_embed_interp.u.plot()
+    ds_embed_interp.u.isel(time=0).plot()
     plt.figure()
-    (ds_embed_interp-ds_outer.isel(time=0)).u.plot()
+    (ds_embed_interp-ds_outer).u.isel(time=0).plot()
     plt.figure()
-    ds_embed_replace.u.plot()
+    ds_embed_replace.u.isel(time=0).plot()
     plt.figure()
-    (ds_embed_replace-ds_outer.isel(time=0)).u.plot()
+    (ds_embed_replace-ds_outer).u.isel(time=0).plot()
     plt.show()
     
     print("\n\n\nEND.")
