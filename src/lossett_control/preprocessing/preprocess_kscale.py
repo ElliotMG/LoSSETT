@@ -335,6 +335,8 @@ def load_kscale_0p5deg(
         )
         ds_u_3D.append(ds[["u","v","w"]])
     ds_u_3D = xr.concat(ds_u_3D,dim="pressure")
+    # strip nonsense values at boundaries
+    ds_u_3D = ds_u_3D.isel(latitude=slice(1,-1))
     
     return ds_u_3D;
 
