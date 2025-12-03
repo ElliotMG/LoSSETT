@@ -4,6 +4,7 @@
 # temporary/log files
 *.tmp
 *.log
+log*
 *.out
 *.err
 *.e
