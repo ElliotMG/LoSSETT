@@ -18,7 +18,8 @@ dependencies = [
     "matplotlib",
     "cartopy",
     "pillow>=11.3.0",
-    "mo_pack @ git+https://github.com/SciTools/mo_pack.git"
+    "mo_pack @ git+https://github.com/SciTools/mo_pack.git",
+    "fonttools>=4.60.2"
 ]
 packages = [
     { include = "lossett" },
