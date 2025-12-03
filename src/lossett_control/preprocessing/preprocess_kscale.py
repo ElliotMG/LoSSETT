@@ -119,7 +119,7 @@ def parse_period_id(_period):
 
 def parse_dri_mod_id(period,_dri_mod_id):
     # parse driving model ID
-    dri_mod_id = _dri_mod_id.lower().replace("_","")
+    dri_mod_id = _dri_mod_id.lower().replace("_","").replace("p2","").replace("p3","")
 
     # get driving model string
     try:
@@ -127,13 +127,12 @@ def parse_dri_mod_id(period,_dri_mod_id):
     except:
         print(f"Error: No global model matching ID {_dri_mod_id} for period {period}.")
         sys.exit(1)
-    print(f"\n\n{dri_mod_id},{dri_mod_str}")
     
     return dri_mod_id, dri_mod_str;
 
 def parse_nest_mod_id(period,dri_mod_id,_nest_mod_id):
     # parse nested model ID
-    nest_mod_id = _nest_mod_id.lower().replace("_","")
+    nest_mod_id = _nest_mod_id.lower().replace("_","").replace("p2","").replace("p3","")
     if nest_mod_id in ["none","glm"]:
         nest_mod_id = "glm"
     elif nest_mod_id.startswith("ctc"):
@@ -178,69 +177,6 @@ def embed_inner_grid_in_global(outer, inner, type="channel", method="interp"):
     
     return embedded;
 
-def setup_vars_DS(return_dates=False,grid="0p5deg"):
-    # DEPRECATED
-    # This function uses the already-processed DS data in Elliot's directory;
-    # it is better to use the data in $KSCALE/DATA instead
-    # see load_kscale_0p5deg OR load_kscale_native
-    
-    # 1. data directory
-    data_dir = "/gws/nopw/j04/kscale/USERS/emg/data/DYAMOND_Summer/"
-
-    # 2. variable names
-    u_name = "u"
-    v_name = "v"
-    w_name = "w"
-    var_names = [u_name, v_name, w_name]
-
-    # 3. define date range
-    start_date = dt.date(2016,8,1) # take as command line argument, or from options file
-    ndays = 40
-    dates = [start_date + dt.timedelta(i) for i in range(ndays)]
-    
-    if return_dates:
-        return var_names, data_dir, dates;
-    else:
-        return var_names, data_dir;
-
-def load_kscale(simid, period, grid):
-    # DEPRECATED
-    # This function uses the already-processed DS data in Elliot's directory;
-    # it is better to use the data in $KSCALE/DATA instead
-    # see load_kscale_0p5deg OR load_kscale_native
-    
-    tsteps_per_day = 8
-    if period == "DS":
-        var_names, data_dir, dates = setup_vars_DS(return_dates=True,grid=grid)
-        
-    if period == "DS" and grid == "0p5deg":
-        # This currently uses the already-processed DS data in Elliot's directory;
-        # would be better to use the data in $KSCALE/DATA instead
-        ds_u_3D = xr.open_mfdataset(
-            [
-                os.path.join(data_dir,f"{var_name}_DS_3D_{simid}.nc")\
-                for var_name in var_names
-            ],
-            mask_and_scale = True
-        )
-        # subset dates
-        start = dates[0]
-        start_datetime = dt.datetime(start.year,start.month,start.day,3)
-        end = dates[-1] + dt.timedelta(1)
-        end_datetime = dt.datetime(end.year,end.month,end.day,0)
-        ds_u_3D = ds_u_3D.sel(time=slice(start_datetime,end_datetime))
-
-    # rename variables
-    ds_u_3D = ds_u_3D.rename(
-        {
-            "x_wind":"u",
-            "y_wind":"v",
-            "upward_air_velocity":"w"
-        }
-    )
-    
-    return ds_u_3D;
-
 def load_kscale_0p5deg(
         period,
         datetime,
@@ -252,7 +188,10 @@ def load_kscale_0p5deg(
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}"
 
     # should add a check that dates are in correct bounds!
-    # should parse period, driving_model, nested_model here
+    # parse period, driving_model, nested_model here
+    period = parse_period_id(period)
+    dri_mod_id, dri_mod_str = parse_dri_mod_id(period,driving_model)
+    nest_mod_id, nest_mod_str = parse_nest_mod_id(period,dri_mod_id,nested_model)
 
     # DYAMOND SUMMER
     if period == "DYAMOND_SUMMER":
@@ -260,27 +199,27 @@ def load_kscale_0p5deg(
         t0_str = "20160801T0000Z"
         
         # specify driving model
-        if driving_model == "n1280RAL3":
+        if dri_mod_id == "n1280ral3":
             DATA_DIR = os.path.join(DATA_DIR,"DMn1280RAL3")
-            dri_mod_str = "n1280_RAL3p2"
-        elif driving_model == "n1280GAL9":
+        elif dri_mod_id == "n1280gal9":
             DATA_DIR = os.path.join(DATA_DIR,"DMn1280GAL9")
-            dri_mod_str = "n1280_GAL9"
+        else:
+            print(f"\nDriving model must be one of n1280ral3, n1280gal9, not{dri_mod_id}.")
+            sys.exit(1)
         #endif
 
         # specify nested model
-        if nested_model is None or nested_model == "glm":
+        if nest_mod_id == "glm":
             DATA_DIR = os.path.join(DATA_DIR,f"global_{dri_mod_str}")
-            nest_mod_str = "glm"
             domain_str = "global"
-        elif nested_model == "channel_n2560_RAL3":
+        elif nest_mod_id == "channeln2560ral3":
             DATA_DIR = os.path.join(DATA_DIR,"channel_n2560_RAL3p2")
             domain_str = "channel"
-        elif nested_model == "channel_n2560_GAL9":
+        elif nest_mod_id == "channeln2560gal9":
             DATA_DIR = os.path.join(DATA_DIR,"channel_n2560_GAL9")
             domain_str = "channel"
         else:
-            print(f"Nested model {nested_model} not yet supported.")
+            print(f"Nested model {nest_mod_str} not yet supported.")
             sys.exit(1)
         #endif
     #endif
@@ -291,27 +230,24 @@ def load_kscale_0p5deg(
         t0_str = "20200120T0000Z"
         
         # specify driving model
-        if driving_model == "n1280RAL3":
+        if dri_mod_id == "n1280ral3":
             DATA_DIR = os.path.join(DATA_DIR,"DMn1280RAL3")
-            dri_mod_str = "n1280_RAL3p2"
-        elif driving_model == "n1280GAL9":
+        elif dri_mod_id == "n1280gal9":
             DATA_DIR = os.path.join(DATA_DIR,"DMn1280GAL9")
-            dri_mod_str = "n1280_GAL9"
         #endif
 
         # specify nested model
-        if nested_model is None or nested_model == "glm":
+        if nest_mod_id == "glm":
             DATA_DIR = os.path.join(DATA_DIR,f"global_{dri_mod_str}")
-            nest_mod_str = "glm"
             domain_str = "global"
-        elif nested_model == "channel_n2560_RAL3":
+        elif nest_mod_id == "channeln2560ral3":
             DATA_DIR = os.path.join(DATA_DIR,"channel_n2560_RAL3p2")
             domain_str = "channel"
-        elif nested_model == "channel_n2560_GAL9":
+        elif nest_mod_id == "channeln2560gal9":
             DATA_DIR = os.path.join(DATA_DIR,"channel_n2560_GAL9")
             domain_str = "channel"
         else:
-            print(f"Nested model {nested_model} not yet supported.")
+            print(f"Nested model {nest_mod_str} not yet supported.")
             sys.exit(1)
         #endif
     #endif

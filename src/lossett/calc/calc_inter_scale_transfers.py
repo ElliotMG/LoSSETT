@@ -71,10 +71,12 @@ def calc_inter_scale_energy_transfer_kinetic(
     delta_u_cubed = calc_increment_integrand(
         ds_u_3D, scale_incs, calc_delta_u_cubed, delta_x, delta_y,
         xdim=x_coord_name, ydim=y_coord_name, xbounds=x_bounds, ybounds=y_bounds,
-        x_bound_field=x_coord_boundary, y_bound_field=y_coord_boundary, precision=precision,
-        verbose=True
+        x_bound_field=x_coord_boundary, y_bound_field=y_coord_boundary,
+        precision=precision, verbose=True
     )
-    delta_u_cubed = delta_u_cubed.transpose("r","time",x_coord_name,y_coord_name,"pressure")
+    delta_u_cubed = delta_u_cubed.transpose(
+        "r","time",x_coord_name,y_coord_name,"pressure"
+    )
     if x_coord_units == "deg":
         delta_u_cubed = delta_u_cubed.assign_coords(
             {x_coord_name:_x.values,y_coord_name:_y.values}
