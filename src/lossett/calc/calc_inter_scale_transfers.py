@@ -90,8 +90,8 @@ def calc_inter_scale_energy_transfer_kinetic(
     # to specify scales if desired.
     length_scales = r.values[1:len(r)//2]
     # calculate inter-scale kinetic energy transfer
-    Dl_u = calc_scale_space_integral(
-        integrand, length_scales=length_scales, weighting="2D",
+    Dl_u = (1./4.)*calc_scale_space_integral(
+        integrand, length_scales=length_scales, geometry="2D",
         name="Dl_u"
     ) # should add options for kernel specification
 
@@ -259,31 +259,41 @@ def calc_increment_integrand(
 
     return r_integrand;
 
-def calc_scale_space_integral(integrand, name, length_scales=None, weighting="2D"):
+def calc_scale_space_integral(
+        integrand,
+        name,
+        length_scales=None,
+        kernel_gradient=True,
+        geometry="2D",
+        max_r_ratio=2. # ratio max_r / \ell
+):
     r = integrand.r
     if length_scales is None:
-        length_scales = r.values[1:len(r)//2]
+        length_scales = r.values[1:len(r)//max_r_ratio]
 
     G, dG_dr = get_integration_kernels(
         r,
         length_scales,
-        normalization=weighting,
+        normalization=geometry,
         return_deriv=True
     )
+    if kernel_gradient == True:
+        weight = dG_dr
+    else:
+        weight = G
 
     # integrate only over the support of dG_dr
     # NOTE: there must be a way to vectorise this?
     print("\nCalculating scale-space integral.")
     integral = []
-    for il, ell in enumerate(dG_dr.length_scale):
+    for il, ell in enumerate(weight.length_scale):
         print("\n\ell = ", ell)
         integral.append(
             (
-                dG_dr.sel(length_scale=ell)*r*integrand
-            ).sel(r=slice(0,2*ell)).integrate("r").rename(name)
+                weight.sel(length_scale=ell)*r*integrand
+            ).sel(r=slice(0,max_r_ratio*ell)).integrate("r").rename(name)
         )
     integral = xr.concat(integral, "length_scale")
-    integral *= (1./4.)
 
     integral.length_scale.attrs["units"] = r.attrs["units"]
     
