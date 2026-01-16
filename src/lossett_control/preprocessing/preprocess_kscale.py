@@ -142,7 +142,7 @@ def parse_nest_mod_id(period,dri_mod_id,_nest_mod_id):
     try:
         nest_mod_str = nest_mod_str_dict[period][dri_mod_id][nest_mod_id]
     except:
-        print(f"Error: No nested model matching ID {_nest_mod_id} for period {period} driven by {dri_mod_str}.")
+        print(f"Error: No nested model matching ID {_nest_mod_id} for period {period} driven by {dri_mod_id}.")
         sys.exit(1)
         
     return nest_mod_id, nest_mod_str;

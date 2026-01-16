@@ -21,7 +21,7 @@ if __name__ == "__main__":
     period = parse_period_id(sys.argv[1])
     dri_mod_id, dri_mod_str = parse_dri_mod_id(period,sys.argv[2])
     nest_mod_id, nest_mod_str = parse_nest_mod_id(period,dri_mod_id,sys.argv[3])
-    tsteps_per_day = 8
+    tsteps = 24
     lon_bound_field = "periodic"
     lat_bound_field = np.nan
 
@@ -36,7 +36,7 @@ if __name__ == "__main__":
     chunk_latlon = False
     subset_lat = False
     max_r_deg = float(sys.argv[7])
-    tsteps = 8
+    tsteps_per_day = 24
     tchunks = 8
     prec = 1e-10
 
@@ -84,10 +84,13 @@ if __name__ == "__main__":
 
     if period == "DYAMOND_SUMMER":
         period_dirstr = "DYAMOND_Summer"
+        startdate = dt.datetime(2016,8,1)
     elif period == "DYAMOND_WINTER":
         period_dirstr = "DYAMOND_Winter"
+        startdate = dt.datetime(2020,1,20)
     elif period == "DYAMOND3":
         period_dirstr = period
+        startdate = dt.datetime(2020,1,20)
 
     if dri_mod_id == "n1280gal9":
         dri_mod_fstr = "DMn1280GAL9"
@@ -120,6 +123,9 @@ if __name__ == "__main__":
         mask_and_scale = True
     )["precipitation_rate"]
     field = field.isel(latitude=slice(1,-1))
+    # subset single day
+    ndays = (datetime - startdate).days
+    field = field.isel(time=slice(ndays*tsteps_per_day,(ndays+1)*tsteps_per_day))
 
     t_str = ""
     if single_t:
@@ -167,7 +173,7 @@ if __name__ == "__main__":
     fpath = os.path.join(
         OUT_DIR,
         f"{nest_mod_str}.{dri_mod_str}_0p5deg_{varname}_filtered_"\
-        f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{dt_str}{subset_str}{p_str}{t_str}.nc"
+        f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{dt_str}{subset_str}{t_str}.nc"
     )
     print(f"\nFiltered {varname}:\n",field_filtered)
     print(f"\nSaving {field_filtered.name} to NetCDF at location {fpath}.")

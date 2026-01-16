@@ -12,12 +12,16 @@ from lossett_control.preprocessing.preprocess_kscale import load_kscale_0p5deg, 
 from lossett.filtering.integral_filter import filter_field
 
 if __name__ == "__main__":
-    #OUT_DIR = "/gws/nopw/j04/kscale/USERS/dship/LoSSETT_out/"
-    OUT_DIR = "/work/scratch-pw2/dship/LoSSETT/output/kscale/"
-
     # should take all of these from command line or an options file
     # simulation specification
     varname = sys.argv[1]
+    if "*" in varname:
+        varname1, varname2 = varname.split("*")
+        print(varname1, varname2)
+        varname = varname1+"_times_"+varname2
+        product = True
+    else:
+        product = False
     period = parse_period_id(sys.argv[2])
     dri_mod_id, dri_mod_str = parse_dri_mod_id(period,sys.argv[3])
     nest_mod_id, nest_mod_str = parse_nest_mod_id(period,dri_mod_id,sys.argv[4])
@@ -95,9 +99,20 @@ if __name__ == "__main__":
     }
 
     # load data
-    field = load_kscale_0p5deg(
-        period,datetime,driving_model=dri_mod_id,nested_model=nest_mod_id
-    )[varname]
+    if product:
+        field1 = load_kscale_0p5deg(
+            period,datetime,driving_model=dri_mod_id,nested_model=nest_mod_id
+        )[varname1]
+        field2 = load_kscale_0p5deg(
+            period,datetime,driving_model=dri_mod_id,nested_model=nest_mod_id
+        )[varname2]
+        field = (field1*field2).rename(varname)
+        field.attrs = field1.attrs
+        field.attrs["units"] = field1.attrs["units"] + " * " + field2.attrs["units"]
+    else:
+        field = load_kscale_0p5deg(
+            period,datetime,driving_model=dri_mod_id,nested_model=nest_mod_id
+        )[varname]
 
     t_str = ""
     if single_t:
@@ -139,10 +154,12 @@ if __name__ == "__main__":
     length_scales = 1000.0*np.array(
         [110,220,330,440,550,660,770,880,990,1100,
          1400,1750,2200,2750,3500]
-    )
+    ) # should have some handling to ensure that length scales are not larger than
+    # maximum allowed for maximum r (either user-specified or domain-enforced)
+    ells = length_scales/2.
     field_filtered = filter_field(
         field, control_dict,
-        length_scales=length_scales, name=varname+"_filtered"
+        length_scales=ells, name=varname+"_filtered"
     )
     print("\n\n\nFiltered field:\n",field_filtered)
 
