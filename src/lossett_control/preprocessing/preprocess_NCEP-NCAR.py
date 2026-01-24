@@ -64,12 +64,14 @@ def load_NCEP_NCAR(var_names, new_var_names, year, data_dir, moist=False):
         "pressure": 17
     })
 
-    # q has no values above p = 300 hPa; fill with zeros
-    q_attrs = ds.q.attrs
-    ds = ds.rename({"q":"q_nan"})
-    ds = ds.assign(q=ds.q_nan.where(ds.pressure >= 300, other=0.0))
-    ds.q.attrs = q_attrs
-    ds = ds.drop_vars("q_nan")
+    if moist:
+        # q has no values above p = 300 hPa; fill with zeros
+        q_attrs = ds.q.attrs
+        ds = ds.rename({"q":"q_nan"})
+        ds = ds.assign(q=ds.q_nan.where(ds.pressure >= 300, other=0.0))
+        ds.q.attrs = q_attrs
+        ds = ds.drop_vars("q_nan")
+    #endif
     # omega has no values above p = 100 hPa; fill with zeros
     omega_attrs = ds.omega.attrs
     ds = ds.rename({"omega":"omega_nan"})
@@ -119,16 +121,21 @@ if __name__ == "__main__":
     if year not in [2005, 2016]:
         print("Input error! Year must be 2005 or 2016.")
         sys.exit(1)
+
+    moist = False
     
     # Get required file metadata
-    var_names, new_var_names, data_dir = setup_vars_NCEP_NCAR(moist=True)
+    var_names, new_var_names, data_dir = setup_vars_NCEP_NCAR(moist=moist)
 
     # Load NCEP-NCAR for specified year
-    ds = load_NCEP_NCAR(var_names, new_var_names, year, data_dir, moist=True)
+    ds = load_NCEP_NCAR(var_names, new_var_names, year, data_dir, moist=moist)
     print("\n\n\nNCEP-NCAR data:\n", ds)
 
     # save processed data
-    fpath = os.path.join(data_dir, f"NCEP_NCAR_uvwTqrho_{year}.nc")
+    if moist:
+        fpath = os.path.join(data_dir, f"NCEP_NCAR_uvwTqrho_moist_{year}.nc")
+    else:
+        fpath = os.path.join(data_dir, f"NCEP_NCAR_uvwTrho_{year}.nc")
     print(f"\n\nSaving processed data to {fpath}")
     ds.to_netcdf(fpath)
     

@@ -24,7 +24,7 @@ dri_mod_str_dict = {
         "n1280gal9": "n1280_GAL9"
     },
     "DYAMOND3": {
-        "n2560ral3": "n1280_RAL3p2",
+        "n2560ral3": "n2560_RAL3p2",
         "n1280gal9": "n1280_GAL9",
         "n1280coma9": "n1280_CoMA9"
     }
@@ -147,22 +147,59 @@ def parse_nest_mod_id(period,dri_mod_id,_nest_mod_id):
         
     return nest_mod_id, nest_mod_str;
 
-def embed_inner_grid_in_global(outer, inner, type="channel", method="interp"):
+def check_longitude(ds, out="180"):
+    # Check lon direction and conventions (e.g. is lon [-180,180] or [0,360]?)
+    if (ds.longitude[-1].values > 180) and (out == "180"):
+        lon_attrs = ds.coords["longitude"].attrs
+        ds.coords["longitude"] = (ds.coords["longitude"] + 180) % 360 - 180
+        ds.longitude.attrs = lon_attrs
+    elif (ds.longitude[0].values >= 0) and (out == "360"):
+        print("Error! out == 360 not yet implemented!")
+        sys.exit(1)
+    ds = ds.sortby(ds.longitude) # has no effect if lon already correctly oriented
+    return ds;
+
+def embed_inner_grid_in_global(outer, inner, inner_type="channel", boundary_method="interp"):
     thresh=1e10
-    if method == "interp":
-        _embedded = inner.combine_first(outer)
-        # replace daft values with nan
-        _embedded = _embedded.where(_embedded < thresh, np.nan)
-        _embedded = _embedded.chunk(
-            chunks={"latitude":len(_embedded.latitude),
-                    "longitude":len(_embedded.longitude)}
+    outer = check_longitude(outer,out="180")
+    inner = check_longitude(inner,out="180")
+    lat_boundary_pad = 5 # number of cells to remove at latitudinal boundaries
+    inner = inner.isel(latitude=slice(lat_boundary_pad,-lat_boundary_pad))
+    if boundary_method == "interp":
+        embedded = inner.combine_first(outer)
+        embedded = embedded.chunk(
+            chunks={"latitude":len(embedded.latitude),
+                    "longitude":len(embedded.longitude)}
         ).compute()
-        embedded = _embedded.interpolate_na(dim="latitude",method="cubic")
-        if type == "lam":
-            embedded = _embedded.interpolate_na(dim="longitude",method="cubic")
-        if "time" in embedded.dims:
-            embedded = embedded.interpolate_na(dim="time", method="cubic")
-    elif method == "replace":
+
+        # hard-coded linear interpolation assuming uniform lat-lon grid
+        # could possibly actually code up the MetUM open boundary condition?
+        delta_lat = np.abs(inner.latitude[-1] - inner.latitude[-2]).values
+        lat_boundary_north_1 = inner.latitude[-2]
+        lat_boundary_north_2 = embedded.latitude.sel(
+            latitude = inner.latitude[-1] + delta_lat, method="nearest"
+        )
+        lat_boundary_south_1 = inner.latitude[1]
+        lat_boundary_south_2 = embedded.latitude.sel(
+            latitude = inner.latitude[0] - delta_lat, method="nearest"
+        )
+        # interpolate northern boundary
+        embedded.loc[{"latitude": inner.latitude[-1]}] = \
+            0.5 * (
+                embedded.loc[{"latitude": lat_boundary_north_1}]\
+                + embedded.loc[{"latitude": lat_boundary_north_2}]
+                )
+        # interpolate southern boundary
+        embedded.loc[{"latitude": inner.latitude[0]}] = \
+            0.5 * (
+                embedded.loc[{"latitude": lat_boundary_south_1}]\
+                + embedded.loc[{"latitude": lat_boundary_south_2}]
+                )
+        
+        if inner_type == "lam":
+            print("\nError! inner_type = 'lam' not yet implemented. Exiting.")
+            sys.exit(1)
+    elif boundary_method == "replace":
         # check that magnitude of boundary values is sensible
         if inner.isel(latitude=0) >= 1e10 or inner.isel(latitude=-1) >= 1e10:
             # remove values closest to latudinal boundaries
@@ -176,6 +213,34 @@ def embed_inner_grid_in_global(outer, inner, type="channel", method="interp"):
     #endif
     
     return embedded;
+
+def interp_time_driving_model(
+        ds,
+        time_offset=np.timedelta64(1, "h"),
+        lag=True,
+        method="linear",
+        retain_original_times=True,
+        keep_initial_time=True
+        # should also implement a keep_final_time for lag=False
+):
+    # should check time type here
+    times = ds.time[1:]
+    if lag:
+        offset_times = times - time_offset
+    else:
+        offset_times = times + time_offset
+    #endif
+    
+    ds_time_interp = ds.interp(time=offset_times, method=method)
+    if retain_original_times:
+        ds_time_interp = ds_time_interp.assign_coords({"time": times})
+    #endif
+    if keep_initial_time:
+        ds_time_interp = xr.concat([ds.isel(time=0),ds_time_interp],dim="time")
+    # ensure correct dimension ordering
+    ds_time_interp = ds_time_interp.transpose("time","pressure","latitude","longitude")
+    # should change attributes to note that time interpolation has been performed
+    return ds_time_interp;
 
 def load_kscale_0p5deg(
         period,
@@ -284,26 +349,30 @@ def load_kscale_native(
         driving_model,
         nested_model=None,
         return_iris=False,
-        save_nc=False
+        save_nc=False,
+        force=False
 ):
     DATA_DIR_ROOT = "/gws/nopw/j04/kscale/"
     dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour//12)*12:02d}"
     
     # should add a check that dates are in correct bounds!
-    # should parse period, driving_model, nested_model here
+    # parse period, driving_model, nested_model here
+    period = parse_period_id(period)
+    dri_mod_id, dri_mod_str = parse_dri_mod_id(period,driving_model)
+    nest_mod_id, nest_mod_str = parse_nest_mod_id(period,dri_mod_id,nested_model)
     
     # DYAMOND 3
-    if period == "DYAMOND3": # change to allow also Dy3, D3
+    if period == "DYAMOND3":
         DATA_DIR = os.path.join(DATA_DIR_ROOT,"DYAMOND3_data")
 
         # specify driving model
-        if driving_model == "n2560RAL3":
+        if driving_model == "n2560ral3":
             DATA_DIR = os.path.join(DATA_DIR,"5km-RAL3")
             dri_mod_str = "n2560_RAL3p3"
-        elif driving_model == "n1280GAL9":
+        elif driving_model == "n1280gal9":
             DATA_DIR = os.path.join(DATA_DIR,"10km-GAL9-nest")
             dri_mod_str = "n1280_GAL9_nest"
-        elif driving_model == "n1280CoMA9":
+        elif driving_model == "n1280coma9":
             DATA_DIR = os.path.join(DATA_DIR,"10km-CoMA9")
             dri_mod_str = "n1280_CoMA9"
 
@@ -311,31 +380,31 @@ def load_kscale_native(
         if nested_model is None or nested_model == "glm":
             DATA_DIR = os.path.join(DATA_DIR,"glm","field.pp","apverc.pp")
             nest_mod_str = "glm"
-        elif driving_model != "n1280GAL9":
+        elif driving_model != "n1280gal9":
             print(f"Error! Driving model {dri_mod_str} has no nested models.")
             sys.exit(1)
-        elif nested_model == "CTC_km4p4_RAL3":
+        elif nested_model == "channelkm4p4ral3":
             DATA_DIR = os.path.join(DATA_DIR,"CTC_km4p4_RAL3P3","field.pp","apverc.pp")
             nest_mod_str = "CTC_km4p4_RAL3P3"
-        elif nested_model == "Africa_km4p4_RAL3":
+        elif nested_model == "africakm4p4ral3":
             DATA_DIR = os.path.join(DATA_DIR,"Africa_km4p4_RAL3P3","field.pp","apverc.pp")
             nest_mod_str = "Africa_km4p4_RAL3P3"
-        elif nested_model == "SAmer_km4p4_RAL3":
+        elif nested_model == "samerkm4p4ral3":
             DATA_DIR = os.path.join(DATA_DIR,"SAmer_km4p4_RAL3P3","field.pp","apverc.pp")
             nest_mod_str = "SAmer_km4p4_RAL3P3"
-        elif nested_model == "SEA_km4p4_RAL3":
+        elif nested_model == "seakm4p4ral3":
             DATA_DIR = os.path.join(DATA_DIR,"SEA_km4p4_RAL3P3","field.pp","apverc.pp")
             nest_mod_str = "SEA_km4p4_RAL3P3"
-        elif nested_model == "CTC_km4p4_CoMA9":
+        elif nested_model == "channelkm4p4coma9":
             DATA_DIR = os.path.join(DATA_DIR,"CTC_km4p4_CoMA9_TBv1","field.pp","apverc.pp")
             nest_mod_str = "CTC_km4p4_CoMA9_TBv1"
-        elif nested_model == "Africa_km4p4_CoMA9":
+        elif nested_model == "africakm4p4coma9":
             DATA_DIR = os.path.join(DATA_DIR,"Africa_km4p4_CoMA9_TBv1","field.pp","apverc.pp")
             nest_mod_str = "Africa_km4p4_CoMA9_TBv1"
-        elif nested_model == "SEA_km4p4_CoMA9":
+        elif nested_model == "seakm4p4coma9":
             DATA_DIR = os.path.join(DATA_DIR,"SEA_km4p4_CoMA9_TBv1","field.pp","apverc.pp")
             nest_mod_str = "SEA_km4p4_CoMA9_TBv1"
-        elif nested_model == "SAmer_km4p4_CoMA9":
+        elif nested_model == "samerkm4p4coma9":
             DATA_DIR = os.path.join(DATA_DIR,"SAmer_km4p4_CoMA9_TBv1","field.pp","apverc.pp")
             nest_mod_str = "SAmer_km4p4_CoMA9_TBv1"
         else:
@@ -350,7 +419,7 @@ def load_kscale_native(
     # root file path = /gws/nopw/j04/kscale/USERS/emg/data/native_res_deterministic/{period}/{model_id}/
     
     # DYAMOND SUMMER
-    elif period == "DYAMOND_SUMMER": # change to allow also DyS, DS, DYAMOND1, Dy1, D1
+    elif period == "DYAMOND_SUMMER":
         # DyS native res. data not yet on GWS, so read from Elliot's scratch
         #DATA_DIR = os.path.join(DATA_DIR_ROOT, "DATA","outdir_20160801T0000Z")
         DATA_DIR = "/gws/nopw/j04/kscale/USERS/emg/data/native_res_deterministic/DS"
@@ -361,7 +430,7 @@ def load_kscale_native(
         hr_str = f"{hrs_since_start:03d}"
 
         # specify driving model
-        if driving_model != "n1280GAL9":
+        if driving_model != "n1280gal9":
             print(f"Error! Period {period} has no driving model named {driving_model}.")
             sys.exit(1)
         
@@ -371,13 +440,13 @@ def load_kscale_native(
         if nested_model is None or nested_model == "glm":
             DATA_DIR = os.path.join(DATA_DIR,"global_n1280_GAL9")
             nest_mod_str = "glm"
-        elif nested_model == "CTC_n2560_GAL9":
+        elif nested_model == "channeln2560gal9":
             DATA_DIR = os.path.join(DATA_DIR,"CTC_N2560_GAL9")
             nest_mod_str = "CTC_n2560_GAL9"
-        elif nested_model == "CTC_n2560_RAL3":
+        elif nested_model == "channeln2560ral3":
             DATA_DIR = os.path.join(DATA_DIR,"CTC_N2560_RAL3p2")
             nest_mod_str = "CTC_n2560_RAL3p2"
-        elif nested_model == "CTC_km4p4_RAL3":
+        elif nested_model == "channelkm4p4ral3":
             DATA_DIR = os.path.join(DATA_DIR,"CTC_N2560_GAL3p2")
             nest_mod_str = "CTC_km4p4_RAL3p2"
         else:
@@ -425,12 +494,11 @@ def load_kscale_native(
     # save NetCDF to scratch
     if save_nc:
         from pathlib import Path
-        #SAVE_DIR = "/work/scratch-pw2/dship/LoSSETT/preprocessed_kscale_data"
+        #SAVE_DIR = "/work/scratch-pw4/dship/LoSSETT/preprocessed_kscale_data"
         SAVE_DIR = f"/gws/nopw/j04/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data/{period}"
-        #SAVE_DIR = f"/work/scratch-nopw2/dship/LoSSETT/preprocessed_kscale_data/{period}"
         Path(SAVE_DIR).mkdir(parents=True,exist_ok=True)
         fpath = os.path.join(SAVE_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_{dt_str}.nc")
-        if not os.path.exists(fpath):
+        if not os.path.exists(fpath) or force:
             print(f"\n\n\nSaving velocity data to NetCDF at {fpath}.")
             ds.to_netcdf(fpath) # available engines: netcdf4, h5netcdf, scipy
     
@@ -440,74 +508,130 @@ def load_kscale_native(
         return ds;
 
 if __name__ == "__main__":
-    period=sys.argv[1]
-    driving_model = sys.argv[2]
-    nested_model = sys.argv[3]
+    _period=sys.argv[1]
+    _dri_mod_id = sys.argv[2]
+    _nest_mod_id = sys.argv[3]
     grid = sys.argv[4]
     year = int(sys.argv[5])
     month = int(sys.argv[6])
     day = int(sys.argv[7])
     hour = int(sys.argv[8])
     save_nc = False
-    datetime = dt.datetime(year,month,day,hour)
     #plevs = [100,150,200,250,300,400,500,600,700,850,925,1000]
     plevs = [200]
+    
+    # parse period, driving model, nested model
+    period = parse_period_id(_period)
+    dri_mod_id, dri_mod_str = parse_dri_mod_id(period,_dri_mod_id)
+    nest_mod_id, nest_mod_str = parse_nest_mod_id(period,dri_mod_id,_nest_mod_id)
+
+    datetime = dt.datetime(year,month,day,hour)
+    dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}T{(datetime.hour//12)*12:02d}"
+    
     print("\n\n\nPreprocessing details:")
     print(
-        f"\nPeriod: {period}, driving model: {driving_model}, nested_model = {nested_model}, "\
-        f"grid = {grid}, date = {year:04d}-{month:02d}-{day:02d}, hour = {hour:02d}"
+        "\n\nPreprocessing details:\n"\
+        f"period \t\t= {period}\n"\
+        f"driving_model \t= {dri_mod_str} (ID: {dri_mod_id})\n"\
+        f"nested_model \t= {nest_mod_str} (ID: {nest_mod_id})\n"\
+        f"datetime \t= {dt_str}\n"\
+        f"grid \t\t= {grid}\n"\
     )
-    
-    if nested_model in ["None","none","glm","global"]:
-        nested_model = "glm"
         
     if grid == "native":
         ds = load_kscale_native(
             period,
             datetime,
-            driving_model,
-            nested_model=nested_model,
+            driving_model=dri_mod_id,
+            nested_model=nest_mod_id,
             save_nc=save_nc
-        )
+        ).sel(pressure=plevs,method="nearest")
+    elif grid == "n1280":
+        DATA_DIR = \
+            "/gws/nopw/j04/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data/DYAMOND_SUMMER/n1280_regrid"
+        fpath = os.path.join(DATA_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_{dt_str}_n1280.nc")
+        ds_inner = xr.open_dataset(
+            fpath,mask_and_scale=True,drop_variables="leadtime"
+        ).sel(pressure=plevs,method="nearest")
+        ds_outer = load_kscale_native(
+            period,
+            datetime,
+            driving_model=dri_mod_id,
+            nested_model="glm"
+        ).sel(pressure=plevs,method="nearest")
     elif grid == "0p5deg":
         ds_inner = load_kscale_0p5deg(
             period,
             datetime,
-            driving_model,
-            nested_model=nested_model,
+            driving_model=dri_mod_id,
+            nested_model=nest_mod_id,
             plevs=plevs
         )
         ds_outer = load_kscale_0p5deg(
             period,
             datetime,
-            driving_model,
+            driving_model=dri_mod_id,
             nested_model="glm",
             plevs=plevs
         )
-    # sys.exit(0)
+    #endif
     
     print("\n\nInner:\n",ds_inner)
     print("\n\nOuter:\n",ds_outer)
+
+    # time-interpolate driving field
+    ds_outer_t_interp = interp_time_driving_model(ds_outer, time_offset=np.timedelta64(1, "h"))
+    print("\n\nOuter (time-interpolated to 1H lag):\n",ds_outer_t_interp)
+    
+    import matplotlib.pyplot as plt
+    tstep = 1
+    
+    #plt.figure()
+    #ds_outer.u.isel(time=tstep).plot()
+    #plt.figure()
+    #ds_outer_t_interp.u.isel(time=tstep).plot()
+    #plt.show()
+    
     ds_embed_interp = embed_inner_grid_in_global(
         ds_outer,
         ds_inner,
-        method="interp"
+        boundary_method="interp"
+    )
+    ds_embed_interp_time_interp = embed_inner_grid_in_global(
+        ds_outer_t_interp,
+        ds_inner,
+        boundary_method="interp"
     )
     ds_embed_replace = embed_inner_grid_in_global(
         ds_outer,
         ds_inner,
-        method="replace"
+        boundary_method="replace"
     )
 
-    import matplotlib.pyplot as plt
+    # ADD PLOTS ZOOMED IN TO REGIONS!
+
+    # plot
+    # boundary values interpolated
     plt.figure()
-    ds_embed_interp.u.isel(time=0).plot()
+    ds_embed_interp.u.isel(time=tstep).plot()
+    plt.title("embedded, boundary interpolated")
     plt.figure()
-    (ds_embed_interp-ds_outer).u.isel(time=0).plot()
+    (ds_embed_interp-ds_outer).u.isel(time=tstep).plot()
+    plt.title("embedded, boundary interpolated (diff from driving)")
     plt.figure()
-    ds_embed_replace.u.isel(time=0).plot()
+    ds_embed_interp_time_interp.u.isel(time=tstep).plot()
+    plt.title("embedded, boundary interpolated, time interpolated")
     plt.figure()
-    (ds_embed_replace-ds_outer).u.isel(time=0).plot()
+    (ds_embed_interp_time_interp-ds_outer).u.isel(time=tstep).plot()
+    plt.title("embedded, boundary interpolated, time interpolated (diff from driving)")
+    # boundary values replaced
+    #plt.figure()
+    #ds_embed_replace.u.isel(time=tstep).plot()
+    #plt.title("embedded, boundary replaced")
+    #plt.figure()
+    #(ds_embed_replace-ds_outer).u.isel(time=tstep).plot()
+    #plt.title("embedded, boundary replaced (diff from driving)")
+    
     plt.show()
     
     print("\n\n\nEND.")

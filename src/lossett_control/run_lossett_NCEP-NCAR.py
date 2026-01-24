@@ -18,8 +18,13 @@ if __name__ == "__main__":
     month = int(sys.argv[2])
     max_r_deg = float(sys.argv[3])
     OUT_DIR = DATA_DIR #sys.argv[4]
-    
-    fpath = os.path.join(DATA_DIR, f"NCEP_NCAR_uvwTqrho_{year}.nc")
+
+    moist = False
+
+    if moist:
+        fpath = os.path.join(DATA_DIR, f"NCEP_NCAR_uvwTqrho_moist_{year}.nc")
+    else:
+        fpath = os.path.join(DATA_DIR, f"NCEP_NCAR_uvwTrho_{year}.nc")
     
     tsteps_per_file = 4 #required
     lon_bound_field = "periodic"
@@ -32,7 +37,7 @@ if __name__ == "__main__":
 
     # calculation specification
     chunk_latlon = False
-    subset_lat = True#False # should be optional argument!
+    subset_lat = False # should be optional argument!
     latmin = -60
     latmax = 60
     tsteps = 4
@@ -64,11 +69,18 @@ if __name__ == "__main__":
     }
 
     # open data
-    ds_u_3D = xr.open_dataset(
-        fpath,
-        mask_and_scale=True,
-        drop_variables={"T","q","rho"}
-    )
+    if moist:
+        ds_u_3D = xr.open_dataset(
+            fpath,
+            mask_and_scale=True,
+            drop_variables={"T","q","rho"}
+        )
+    else:
+        ds_u_3D = xr.open_dataset(
+            fpath,
+            mask_and_scale=True,
+            drop_variables={"T","rho"}
+        )
 
     # subset time to month
     ds_u_3D = ds_u_3D.sel(time=slice(start,end))
@@ -93,11 +105,19 @@ if __name__ == "__main__":
     n_l = len(Dl_u.length_scale)
     L_min = Dl_u.length_scale[0].values/1000
     L_max = Dl_u.length_scale[-1].values/1000
-    fpath = os.path.join(
-        OUT_DIR,
-        f"NCEP-NCAR_inter_scale_transfer_of_kinetic_energy_"\
-        f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{year:04d}{month:02d}.nc"
-    )
+    if moist:
+        fpath = os.path.join(
+            OUT_DIR,
+            f"NCEP-NCAR_inter_scale_transfer_of_kinetic_energy_"\
+            f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{year:04d}{month:02d}{subset_str}"\
+            "_moist_density.nc"
+        )
+    else:
+        fpath = os.path.join(
+            OUT_DIR,
+            f"NCEP-NCAR_inter_scale_transfer_of_kinetic_energy_"\
+            f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{year:04d}{month:02d}{subset_str}.nc"
+        )
     print(f"\n{Dl_u.name}:\n",Dl_u)
     print(f"\nSaving {Dl_u.name} to NetCDF at location {fpath}.")
     Dl_u.to_netcdf(fpath)
