@@ -14,7 +14,8 @@ LOSSETT_VN = version("lossett")
 
 def calc_inter_scale_energy_transfer_kinetic(
         ds_u_3D,
-        control_dict
+        control_dict,
+        length_scales=None
 ):
     print(
         "\n\n\n"\
@@ -55,6 +56,12 @@ def calc_inter_scale_energy_transfer_kinetic(
         ds_u_3D = ds_u_3D.assign_coords({x_coord_name:x.values,y_coord_name:y.values})
         ds_u_3D[x_coord_name].attrs["units"] = "m"
         ds_u_3D[y_coord_name].attrs["units"] = "m"
+
+    if length_scales is not None:
+        if np.max(length_scales) < max_r / 2:
+            max_r = 2.0*np.max(length_scales)
+        #endif
+    #endif
     
     x_bounds = np.array([x[0].values,x[-1].values])
     y_bounds = np.array([y[0].values,y[-1].values])
@@ -65,6 +72,24 @@ def calc_inter_scale_energy_transfer_kinetic(
     scale_incs = calc_scale_increments(x,y,max_r,verbose=False)
     scale_incs.r.attrs["units"] = "m"
     r = scale_incs.r
+
+    # assign and/or check length scales
+    min_ell = r.values[1]
+    max_ell = r.values[len(r)//2]
+    print(f"\nmin. allowed \ell = {min_ell:.4g} m")
+    print(f"\nmax. allowed \ell = {max_ell:.4g} m")
+    if length_scales is None:
+        length_scales = r.values[1:len(r)//2]
+    # ensure ascending
+    length_scales = np.sort(length_scales)
+    length_scales = length_scales[
+        (length_scales >= min_ell) & (length_scales <= max_ell)
+    ]
+    print("\nlength_scales = ", length_scales)
+    if len(length_scales) == 0:
+        print(f"\nError! Invalid length_scales specified. \ell must be <= {max_ell:.5g} m")
+        sys.exit(1)
+    #endif
 
     # compute delta u cubed integrated over angles for all |r|
     print(f"\n\n\nCalculating angular integral for r={r[0].values/1000:.4g} km to r={r[-1].values/1000:.4g} km")
@@ -88,9 +113,6 @@ def calc_inter_scale_energy_transfer_kinetic(
     # calculate scale-space integral given integrand, length scales, geometry specification
     integrand = delta_u_cubed
     r = integrand.r
-    # specify length scales -- should probably be an if statement here to allow the user
-    # to specify scales if desired.
-    length_scales = r.values[1:len(r)//2]
     # calculate inter-scale kinetic energy transfer
     Dl_u = (1./4.)*calc_scale_space_integral(
         integrand, length_scales=length_scales, geometry="2D",
@@ -128,6 +150,7 @@ def calc_scale_increments(
     delta_x = np.max(np.diff(xcoord))
     delta_y = np.max(np.diff(ycoord))
     delta_r = max(delta_x, delta_y)
+    max_r = max_r + delta_r # ensure inclusive
     if max_r > min(L_x,L_y)/2:
         max_r = min(L_x,L_y)/2
     if verbose:

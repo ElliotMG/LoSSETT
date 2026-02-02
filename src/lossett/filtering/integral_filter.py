@@ -65,6 +65,27 @@ def filter_field(
     scale_incs.r.attrs["units"] = "m"
     r = scale_incs.r
     
+    # assign and/or check length scales for filtering
+    min_ell = r.values[1]
+    max_ell = r.values[len(r)//2]
+    if length_scales is None:
+        length_scales = r.values[1:len(r)//2]
+    # ensure ascending
+    print("\n\n\n")
+    print(f"min_ell = {min_ell}")
+    print(f"max_ell = {min_ell}")
+    length_scales = np.sort(length_scales)
+    print("length_scales = ", length_scales)
+    length_scales = length_scales[
+        (length_scales <= max_ell)&(length_scales >= min_ell)
+    ]
+    print("clipped length_scales = ", length_scales)
+    sys.exit(1)
+    if len(length_scales) == 0:
+        print(f"\nError! Invalid length_scales specified. \ell must be <= {max_ell:.5g} m")
+        sys.exit(1)
+    #endif
+    
     # shifted field
     field_shifted = calc_increment_integrand(
         field, scale_incs, dummy_function, delta_x, delta_y,
@@ -79,8 +100,6 @@ def filter_field(
         field_shifted[x_coord_name].attrs = _x.attrs
         field_shifted[y_coord_name].attrs = _y.attrs
     # filtered field
-    if length_scales is None:
-        length_scales = r.values[1:len(r)//2]
     field_filtered = calc_scale_space_integral(
         field_shifted, length_scales=length_scales, geometry="2D",
         name=name, kernel_gradient=False
