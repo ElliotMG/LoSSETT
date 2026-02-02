@@ -7,7 +7,7 @@ import numpy as np
 import xarray as xr
 import datetime as dt
 
-from lossett_control.preprocessing.preprocess_kscale import load_kscale_native, \
+from lossett_control.preprocessing.preprocess_kscale import check_longitude, \
     parse_period_id, parse_dri_mod_id, parse_nest_mod_id
 from lossett.calc.calc_inter_scale_transfers import calc_inter_scale_energy_transfer_kinetic
 
@@ -37,7 +37,7 @@ if __name__ == "__main__":
 
     # calculation specification
     chunk_latlon = False
-    subset_lat = True # should be optional argument!
+    subset_lat = False # should be optional argument!
     latmin = -50
     latmax = 50
     max_r_deg = float(sys.argv[8]) # required
@@ -48,13 +48,13 @@ if __name__ == "__main__":
 
     # output directory
     OUT_DIR_ROOT = sys.argv[9] # required
-    OUT_DIR = os.path.join(OUT_DIR_ROOT, period)
+    OUT_DIR = os.path.join(OUT_DIR_ROOT, period, "n640_regrid")
     Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
     # optional arguments
     try:
         tstep = int(sys.argv[10]) # optional
-    except ValueError:
+    except (IndexError, ValueError):
         tstep = None
         single_t = False
     else:
@@ -62,7 +62,7 @@ if __name__ == "__main__":
 
     try:
         plev = int(sys.argv[11]) # optional
-    except ValueError:
+    except (IndexError, ValueError):
         plev = None
         single_p = False
     else:
@@ -101,8 +101,8 @@ if __name__ == "__main__":
     # open data
     DATA_DIR = \
         "/gws/nopw/j04/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data/"\
-        "DYAMOND_SUMMER/n1280_regrid/embedded/"
-    fpath = os.path.join(DATA_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_embedded_{dt_str}.nc")
+        "DYAMOND_SUMMER/n1280_regrid/embedded/n640_regrid/"
+    fpath = os.path.join(DATA_DIR,f"{nest_mod_str}.{dri_mod_str}.uvw_embedded_{dt_str}_n640.nc")
     print(f"\nLoading from {fpath}")
     ds_u_3D = xr.open_dataset(fpath,mask_and_scale=True,drop_variables="leadtime")
     
@@ -127,7 +127,7 @@ if __name__ == "__main__":
         p_str = f"_p{plev:04d}"
     else:
         p_str = ""
-        plevs = [50,200,500,700,850]#[200,850]
+        plevs = [100,150,200,250,300,400,500,600,700,850,925]
         ds_u_3D = ds_u_3D.sel(pressure=plevs,method="nearest").chunk(
             chunks={"pressure":pchunks}
         )
@@ -144,23 +144,26 @@ if __name__ == "__main__":
         # modify to check sign of latmin, latmax to correctly infer South/North
         subset_str = f"_{np.abs(latmin):02d}S-{latmax:02d}N"
 
+    # check longitude is [-180,180]
+    ds_u_3D = check_longitude(ds_u_3D)
+
     if nest_mod_id == "glm":
-        print(f"\n\n\nCalculating {period} global {dri_mod_id} DR indicator for {dt_str}")
+        print(f"\n\n\nCalculating {period} global {dri_mod_str} DR indicator for {dt_str}")
     else:
-        print(f"\n\n\nCalculating {period} {nest_mod_id} (driven by {dri_mod_id}) DR indicator for {dt_str}")
+        print(f"\n\n\nCalculating {period} {nest_mod_str} (driven by {dri_mod_str}) DR indicator for {dt_str}")
 
     print("\nInput data:\n",ds_u_3D)
 
     # specify length scales (10 length scales per decade unless 2dx > spacing between consecutive \ell)
+    #length_scales = np.array([32.,64.,100.,125.,160.,200.,250.,320.,400.,500.,640.,800.,1000.])
     length_scales = np.array(
-        [16.,32.,48.,64.,80.,100.,125.,160.,200.,250.,320.,400.,500.,640.]
+        [32.,64.,100.,125.,160.,200.,250.,320.,400.,500.,640.,800.,1000.,1250.,1600.,2000.,2500.]
     )
     length_scales *= 1000.0 # convert to m
     
     # calculate kinetic DR indicator
     Dl_u = calc_inter_scale_energy_transfer_kinetic(
-        ds_u_3D, control_dict,
-        #length_scales=length_scales
+        ds_u_3D, control_dict, length_scales=length_scales
     )
 
     # ensure correct dimension ordering
@@ -173,7 +176,7 @@ if __name__ == "__main__":
     fpath = os.path.join(
         OUT_DIR,
         f"{nest_mod_str}.{dri_mod_str}_inter_scale_transfer_of_kinetic_energy_"\
-        f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{dt_str}{subset_str}{p_str}{t_str}_n1280_embedded.nc"
+        f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{dt_str}{subset_str}{p_str}{t_str}_n1280_embedded_n640.nc"
     )
     print(f"\n{Dl_u.name}:\n",Dl_u)
     print(f"\nSaving {Dl_u.name} to NetCDF at location {fpath}.")
