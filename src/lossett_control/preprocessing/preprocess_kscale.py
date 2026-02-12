@@ -8,11 +8,11 @@ import pandas as pd
 import datetime as dt
 import iris
 
+# 1. Added DS_embedded to ID list
 DyS = ["dyamondsummer","dyamonds","dyamond1","dys","dy1","ds","d1"]
-
 DyW = ["dyamondwinter","dyamondw","dyamond2","dyw","dy2","dw","d2"]
-
 Dy3 = ["dyamond3","dy3","d3"]
+DySE = ["dsembedded", "ds_embedded", "dse"] # New IDs for embedded
 
 dri_mod_str_dict = {
     "DYAMOND_SUMMER": {
@@ -27,6 +27,11 @@ dri_mod_str_dict = {
         "n2560ral3": "n2560_RAL3p2",
         "n1280gal9": "n1280_GAL9",
         "n1280coma9": "n1280_CoMA9"
+    },
+    # 2. Added DS_embedded to valid driving models
+    "DS_embedded": {
+        "n1280ral3": "RAL3p2", 
+        "n1280gal9": "GAL9"     # Changed from "n1280_GAL9" to "GAL9"
     }
 }
 
@@ -62,7 +67,7 @@ nest_mod_str_dict = {
             "channeln2560ral3": "channel_n2560_RAL3p2",
             "channeln2560gal9": "channel_n2560_GAL9",
             "channelkm4p4ral3": "channel_km4p4_RAL3p2",
-            "lamafricakm2p2ral3": "lam_africa_km2p2_RAL3p2",
+            "lamafric elevationkm2p2ral3": "lam_africa_km2p2_RAL3p2",
             "lamindiakm2p2ral3": "lam_india_km2p2_RAL3p2",
             "lamsamericakm2p2ral3": "lam_samerica_km2p2_RAL3p2",
             "lamseakm2p2ral3": "lam_sea_km2p2_RAL3p2"
@@ -82,9 +87,7 @@ nest_mod_str_dict = {
         },
     },
     "DYAMOND3": {
-        "n2560ral3": {
-            "glm": "glm"
-        },
+        "n2560ral3": {"glm": "glm"},
         "n1280gal9": {
             "glm": "glm",
             "channelkm4p4ral3": "channel_km4p4_RAL3p3",
@@ -96,56 +99,43 @@ nest_mod_str_dict = {
             "lamseakm4p4ral3": "lam_sea_km4p4_RAL3p2",
             "lamseakm4p4coma9": "lam_sea_km4p4_CoMA9"
         },
-        "n1280coma9": {
-            "glm": "glm"
-        },
-    }
+        "n1280coma9": {"glm": "glm"},
+    },
+    # 3. Added DS_embedded to valid nested models (copied from Summer)
+    "DS_embedded": {}
 }
+# Link DS_embedded to the same model choices as Summer for simplicity
+nest_mod_str_dict["DS_embedded"] = nest_mod_str_dict["DYAMOND_SUMMER"]
 
 def parse_period_id(_period):
-    # parse period
     period = _period.lower().replace("_","")
-
-    if period in DyS:
-        period = "DYAMOND_SUMMER"
-    elif period in DyW:
-        period = "DYAMOND_WINTER"
-    elif period in Dy3:
-        period = "DYAMOND3"
-    else:
-        print(f"Error: No period matching ID {_period}.")
-        sys.exit(1)
-    return period;
+    if period in DyS: return "DYAMOND_SUMMER"
+    elif period in DyW: return "DYAMOND_WINTER"
+    elif period in Dy3: return "DYAMOND3"
+    elif period in DySE: return "DS_embedded"
+    else: sys.exit(f"Error: No period matching ID {_period}.")
 
 def parse_dri_mod_id(period,_dri_mod_id):
-    # parse driving model ID
     dri_mod_id = _dri_mod_id.lower().replace("_","").replace("p2","").replace("p3","")
-
-    # get driving model string
     try:
         dri_mod_str = dri_mod_str_dict[period][dri_mod_id]
     except:
         print(f"Error: No global model matching ID {_dri_mod_id} for period {period}.")
         sys.exit(1)
-    
-    return dri_mod_id, dri_mod_str;
+    return dri_mod_id, dri_mod_str
 
 def parse_nest_mod_id(period,dri_mod_id,_nest_mod_id):
-    # parse nested model ID
     nest_mod_id = _nest_mod_id.lower().replace("_","").replace("p2","").replace("p3","")
     if nest_mod_id in ["none","glm"]:
         nest_mod_id = "glm"
     elif nest_mod_id.startswith("ctc"):
         nest_mod_id = "channel"+nest_mod_id.removeprefix("ctc")
-
-    # get nested model string
     try:
         nest_mod_str = nest_mod_str_dict[period][dri_mod_id][nest_mod_id]
     except:
         print(f"Error: No nested model matching ID {_nest_mod_id} for period {period} driven by {dri_mod_id}.")
         sys.exit(1)
-        
-    return nest_mod_id, nest_mod_str;
+    return nest_mod_id, nest_mod_str
 
 def check_longitude(ds, out="180"):
     # Check lon direction and conventions (e.g. is lon [-180,180] or [0,360]?)
@@ -242,54 +232,54 @@ def interp_time_driving_model(
     # should change attributes to note that time interpolation has been performed
     return ds_time_interp;
 
-def load_kscale_0p5deg(
-        period,
-        datetime,
-        driving_model,
-        nested_model=None,
-        plevs=[100,150,200,250,300,400,500,600,700,850,925,1000]
-):
+def load_kscale_0p5deg(period, datetime, driving_model, nested_model=None, plevs=[100,150,200,250,300,400,500,600,700,850,925,1000]):
     DATA_DIR_ROOT = "/gws/nopw/j04/kscale"
-    dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}"
 
-    # should add a check that dates are in correct bounds!
-    # parse period, driving_model, nested_model here
     period = parse_period_id(period)
     dri_mod_id, dri_mod_str = parse_dri_mod_id(period,driving_model)
     nest_mod_id, nest_mod_str = parse_nest_mod_id(period,dri_mod_id,nested_model)
+    
+    # Defaults
+    t0_str = "20160801T0000Z"
+    domain_str = "global"
 
-    # DYAMOND SUMMER
-    if period == "DYAMOND_SUMMER":
+    # --- SPECIAL LOGIC FOR DS_EMBEDDED ---
+    if period == "DS_embedded":
+        DATA_DIR = os.path.join(DATA_DIR_ROOT, "USERS", "emg", "data", "DYAMOND_Summer", "embedded", "0p5deg")
+        # Format: channel_n2560_GAL9.0p5deg_GAL9.uvw_embedded_20160801T00.nc
+        date_str = datetime.strftime("%Y%m%dT%H")
+        fname = f"{nest_mod_str}.0p5deg_{dri_mod_str}.uvw_embedded_{date_str}.nc"
+        fpath = os.path.join(DATA_DIR, fname)
+        
+        if not os.path.exists(fpath):
+            sys.exit(f"ERROR: File not found at {fpath}")
+            
+        ds = xr.open_dataset(fpath, chunks={})
+        
+        # Standardize variable names to match what the rest of the script expects
+        rename_map = {"x_wind": "u", "y_wind": "v", "upward_air_velocity": "w", "lat": "latitude", "lon": "longitude"}
+        ds = ds.rename({k: v for k, v in rename_map.items() if k in ds.variables})
+        
+        # Select the requested levels and trim boundaries
+        ds = ds.sel(pressure=plevs, method="nearest").isel(latitude=slice(1, -1))
+        return ds
+    
+    elif period == "DYAMOND_SUMMER":
         DATA_DIR = os.path.join(DATA_DIR_ROOT,"DATA","outdir_20160801T0000Z")
         t0_str = "20160801T0000Z"
+        dt_str = f"{datetime.year:04d}{datetime.month:02d}{datetime.day:02d}"
+        # Driving and Nesting logic
+        if dri_mod_id == "n1280ral3": DATA_DIR = os.path.join(DATA_DIR,"DMn1280RAL3")
+        elif dri_mod_id == "n1280gal9": DATA_DIR = os.path.join(DATA_DIR,"DMn1280GAL9")
         
-        # specify driving model
-        if dri_mod_id == "n1280ral3":
-            DATA_DIR = os.path.join(DATA_DIR,"DMn1280RAL3")
-        elif dri_mod_id == "n1280gal9":
-            DATA_DIR = os.path.join(DATA_DIR,"DMn1280GAL9")
-        else:
-            print(f"\nDriving model must be one of n1280ral3, n1280gal9, not{dri_mod_id}.")
-            sys.exit(1)
-        #endif
-
-        # specify nested model
         if nest_mod_id == "glm":
             DATA_DIR = os.path.join(DATA_DIR,f"global_{dri_mod_str}")
             domain_str = "global"
-        elif nest_mod_id == "channeln2560ral3":
-            DATA_DIR = os.path.join(DATA_DIR,"channel_n2560_RAL3p2")
-            domain_str = "channel"
-        elif nest_mod_id == "channeln2560gal9":
-            DATA_DIR = os.path.join(DATA_DIR,"channel_n2560_GAL9")
-            domain_str = "channel"
         else:
-            print(f"Nested model {nest_mod_str} not yet supported.")
-            sys.exit(1)
-        #endif
-    #endif
+            DATA_DIR = os.path.join(DATA_DIR, nest_mod_str)
+            domain_str = "channel"
 
-    # DYAMOND WINTER
+       # DYAMOND WINTER
     elif period == "DYAMOND_WINTER":
         DATA_DIR = os.path.join(DATA_DIR_ROOT,"DATA","outdir_20200120T0000Z")
         t0_str = "20200120T0000Z"
@@ -322,26 +312,20 @@ def load_kscale_0p5deg(
         print("DYAMOND3 data coarsened to 0.5deg is not yet available.")
         sys.exit(1)
     #endif
-
+    # Loading Loop
     ds_u_3D = []
     for plev in plevs:
-        ds = xr.open_dataset(
-            os.path.join(
-                DATA_DIR,
-                f"profile_{plev}",
-                f"{dt_str}_{t0_str}_{domain_str}_profile_3hourly_{plev}_05deg.nc"
-            ),
-            drop_variables=["forecast_reference_time","forecast_period"],
-            mask_and_scale=True
-        ).assign_coords({"pressure":np.float32(plev)}).rename(
-            {"x_wind":"u","y_wind":"v","upward_air_velocity":"w"}
-        )
+        fname = f"{dt_str}_{t0_str}_{domain_str}_profile_3hourly_{plev}_05deg.nc"
+        fpath = os.path.join(DATA_DIR, f"profile_{plev}", fname)
+        
+        ds = xr.open_dataset(fpath, drop_variables=["forecast_reference_time","forecast_period"], mask_and_scale=True)
+        ds = ds.assign_coords({"pressure":np.float32(plev)}).rename({"x_wind":"u","y_wind":"v","upward_air_velocity":"w"})
         ds_u_3D.append(ds[["u","v","w"]])
-    ds_u_3D = xr.concat(ds_u_3D,dim="pressure")
-    # strip nonsense values at boundaries
-    ds_u_3D = ds_u_3D.isel(latitude=slice(1,-1))
+        ds_u_3D = xr.concat(ds_u_3D,dim="pressure")
+        # strip nonsense values at boundaries
+        ds_u_3D = ds_u_3D.isel(latitude=slice(1,-1))
     
-    return ds_u_3D;
+        return ds_u_3D;
 
 def load_kscale_native(
         period,
