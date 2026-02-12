@@ -153,14 +153,14 @@ if __name__ == "__main__":
 
     # specify length scales (10 length scales per decade unless 2dx > spacing between consecutive \ell)
     length_scales = np.array(
-        [16.,32.,48.,64.,80.,100.,125.,160.,200.,250.,320.,400.,500.,640.]
+        [16.,32.,48.,64.,80.,100.,125.,160.,200.,250.,320.,400.,500.,640.,800.,1000.]
     )
     length_scales *= 1000.0 # convert to m
     
     # calculate kinetic DR indicator
     Dl_u = calc_inter_scale_energy_transfer_kinetic(
         ds_u_3D, control_dict,
-        #length_scales=length_scales
+        length_scales=length_scales
     )
 
     # ensure correct dimension ordering

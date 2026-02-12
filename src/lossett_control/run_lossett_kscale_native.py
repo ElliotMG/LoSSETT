@@ -7,23 +7,25 @@ import numpy as np
 import xarray as xr
 import datetime as dt
 
-from lossett_control.preprocessing.preprocess_kscale import load_kscale_native
+from lossett_control.preprocessing.preprocess_kscale import load_kscale_native, check_longitude, \
+    parse_period_id, parse_dri_mod_id, parse_nest_mod_id
 from lossett.calc.calc_inter_scale_transfers import calc_inter_scale_energy_transfer_kinetic
 
 if __name__ == "__main__":
     # should take all of these from command line or an options file
     # simulation specification
-    period = sys.argv[1]
-    dri_mod_id = sys.argv[2]
-    nest_mod_id = sys.argv[3]
+    _period = sys.argv[1]
+    _dri_mod_id = sys.argv[2]
+    _nest_mod_id = sys.argv[3]
     #tsteps_per_day = 8
     tsteps_per_file = 4 #required
     lon_bound_field = "periodic"
     lat_bound_field = np.nan
 
-    if nest_mod_id in ["None","none","glm"]:
-        nest_mod_id = "glm"
-        nest_mod_str = "glm"
+    # parse period, driving model, nested model
+    period = parse_period_id(_period)
+    dri_mod_id, dri_mod_str = parse_dri_mod_id(period,_dri_mod_id)
+    nest_mod_id, nest_mod_str = parse_nest_mod_id(period,dri_mod_id,_nest_mod_id)
 
     # day & hour of simulation
     year = int(sys.argv[4])
@@ -35,7 +37,7 @@ if __name__ == "__main__":
 
     # calculation specification
     chunk_latlon = False
-    subset_lat = True # should be optional argument!
+    subset_lat = False # should be optional argument!
     latmin = -50
     latmax = 50
     max_r_deg = float(sys.argv[8]) # required
@@ -45,13 +47,14 @@ if __name__ == "__main__":
     prec = 1e-10
 
     # output directory
-    OUT_DIR = sys.argv[9] # required
+    OUT_DIR_ROOT = sys.argv[9] # required
+    OUT_DIR = os.path.join(OUT_DIR_ROOT, period)
     Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
 
     # optional arguments
     try:
         tstep = int(sys.argv[10]) # optional
-    except ValueError:
+    except (IndexError, ValueError):
         tstep = None
         single_t = False
     else:
@@ -59,7 +62,7 @@ if __name__ == "__main__":
 
     try:
         plev = int(sys.argv[11]) # optional
-    except ValueError:
+    except (IndexError, ValueError):
         plev = None
         single_p = False
     else:
@@ -78,8 +81,8 @@ if __name__ == "__main__":
     print(
         "\n\nInput data specifications:\n"\
         f"period \t\t= {period}\n"\
-        f"driving_model \t= {dri_mod_id}\n"\
-        f"nested_model \t= {nest_mod_id}\n"\
+        f"driving_model \t= {dri_mod_str} (ID: {dri_mod_id})\n"\
+        f"nested_model \t= {nest_mod_str} (ID: {nest_mod_id})\n"\
         f"datetime \t= {dt_str}\n"\
     )
     print(
@@ -157,17 +160,29 @@ if __name__ == "__main__":
         # modify to check sign of latmin, latmax to correctly infer South/North
         subset_str = f"_{latmin:02d}S-{latmax:02d}N"
 
+    # check longitude is [-180,180]
+    ds_u_3D = check_longitude(ds_u_3D)
+
     if nest_mod_id == "glm":
-        print(f"\n\n\nCalculating {period} global {dri_mod_id} DR indicator for {dt_str}")
+        print(f"\n\n\nCalculating {period} global {dri_mod_str} DR indicator for {dt_str}")
     else:
-        print(f"\n\n\nCalculating {period} {nest_mod_id} (driven by {dri_mod_id}) DR indicator for {dt_str}")
+        print(f"\n\n\nCalculating {period} {nest_mod_str} (driven by {dri_mod_str}) DR indicator for {dt_str}")
 
     print("\nInput data:\n",ds_u_3D)
     
+    # specify length scales (10 length scales per decade unless 2dx > spacing between consecutive \ell)
+    length_scales = np.array(
+        [8,16,24,32,40,48,64,80,100,125,160,200,250,320,400]
+    )
+    length_scales = 1000.0 * length_scales # convert to m; ensure float
+    
     # calculate kinetic DR indicator
     Dl_u = calc_inter_scale_energy_transfer_kinetic(
-        ds_u_3D, control_dict
+        ds_u_3D, control_dict, length_scales=length_scales
     )
+    
+    # ensure correct dimension ordering
+    Dl_u = Dl_u.transpose("length_scale","time","pressure","latitude","longitude")
 
     # save to NetCDF
     n_l = len(Dl_u.length_scale)
@@ -175,7 +190,7 @@ if __name__ == "__main__":
     L_max = Dl_u.length_scale[-1].values/1000
     fpath = os.path.join(
         OUT_DIR,
-        f"{nest_mod_id}.{dri_mod_id}_inter_scale_transfer_of_kinetic_energy_"\
+        f"{nest_mod_str}.{dri_mod_str}_inter_scale_transfer_of_kinetic_energy_"\
         f"Lmin_{L_min:05.0f}_Lmax_{L_max:05.0f}_{dt_str}{subset_str}{p_str}{t_str}.nc"
     )
     print(f"\n{Dl_u.name}:\n",Dl_u)
