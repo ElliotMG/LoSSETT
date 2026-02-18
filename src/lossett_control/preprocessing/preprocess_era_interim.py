@@ -141,7 +141,7 @@ def rename_dims(ds):
 if __name__ == "__main__":
     startdate = dt.datetime(2005,1,1)
     enddate = dt.datetime(2005,1,2)
-    ndays = (enddate - startdate).days
+    ndays = 1+(enddate - startdate).days
     print(ndays)
     dates = [startdate + dt.timedelta(days=iday) for iday in range(ndays)]
     print(dates)

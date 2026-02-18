@@ -81,7 +81,7 @@ def setup_vars_yearmonth(year,month,return_dates=False,sampling="3h",moist=False
     else:
         return var_names, yearmonths, data_dir;
 
-def load_era5(var_names, yearmonths, data_dir, sampling="3h"):
+def load_era5(var_names, yearmonths, data_dir, sampling="3h", drop_non_vel=True):
     # Load files
     ds = xr.open_mfdataset(
         [
@@ -132,11 +132,20 @@ def load_era5(var_names, yearmonths, data_dir, sampling="3h"):
         attrs = {'units': 'hPa'}
     )
     rho = ((p*100) / (gas_const_dry_air * ds.t))
-    # Calculate w from omega for ERA5 (should probably save, then add check tos ee if it already exists)
+    # Calculate w from omega for ERA5 (should probably save, then add check to see if it already exists)
     ds = ds.rename({"w":"omega"})
     ds = ds.assign(w=np.divide(-ds.omega,(rho*g)))
     ds.w.attrs["units"] = "m s-1" # should add other attribs from omega
-    ds = ds.drop_vars(["omega","t"])
+    if drop_non_vel:
+        ds = ds.drop_vars(["omega","t"])
+    else:
+        ds = ds.assign(rho=rho)
+        ds.rho.attrs = \
+            {
+                "units" : "kg m-3",
+                "description": "dry air density computed via ideal gas law"
+            }
+        ds = ds.drop_vars(["omega"])
 
     # 9. Transpose
     ds = ds.transpose("time","pressure","latitude","longitude")
