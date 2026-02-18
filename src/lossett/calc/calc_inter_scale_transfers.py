@@ -135,6 +135,142 @@ def calc_inter_scale_energy_transfer_kinetic(
     
     return Dl_u;
 
+def calc_inter_scale_transfer_scalar_variance(
+        ds,
+        varname,
+        control_dict,
+        length_scales=None,
+        var_units=None
+):
+    print(
+        "\n\n\n"\
+        "################################################################################\n"\
+        f"### LoSSETT vn. {LOSSETT_VN} ############################################################\n"\
+        "### Function: calc_inter_scale_energy_transfer_kinetic #########################\n"\
+        "################################################################################\n"
+    )
+    # extract attributes from input data
+    input_attrs = ds.attrs
+    print("Input data attributes:", repr(input_attrs))
+    # extract control params
+    max_r = control_dict["max_r"]
+    max_r_units = control_dict["max_r_units"]
+    precision = control_dict["angle_precision"]
+    x_coord_name = control_dict["x_coord_name"]
+    x_coord_units =control_dict["x_coord_units"]
+    x_coord_boundary = control_dict["x_coord_boundary"]
+    y_coord_name = control_dict["y_coord_name"]
+    y_coord_units = control_dict["y_coord_units"]
+    y_coord_boundary = control_dict["y_coord_boundary"]
+
+    if var_units is None:
+        try:
+            var_units = ds.varname.attrs["units"]
+            units = var_units + "s-1"
+        except:
+            var_units = None
+            units = "undefined"
+    else:
+        units = var_units + "s-1"
+    #endif  
+    
+    # setup x-y coords, bounds, grid spacings
+    x = ds[x_coord_name]
+    y = ds[y_coord_name]
+    if x_coord_units != y_coord_units:
+        print("\nError! x and y coord units must be the same.")
+        sys.exit(1)
+    elif x_coord_units == "deg":
+        _x = x
+        _y = y
+        x = _x*deg_to_m
+        y = _y*deg_to_m
+        if max_r_units == "deg":
+            max_r_deg = max_r
+            max_r = max_r_deg*deg_to_m
+        # add new x, y as coords to ds_u_3D
+        ds = ds.assign_coords({x_coord_name:x.values,y_coord_name:y.values})
+        ds[x_coord_name].attrs["units"] = "m"
+        ds[y_coord_name].attrs["units"] = "m"
+
+    if length_scales is not None:
+        if np.max(length_scales) < max_r / 2:
+            max_r = 2.0*np.max(length_scales)
+        #endif
+    #endif
+    
+    x_bounds = np.array([x[0].values,x[-1].values])
+    y_bounds = np.array([y[0].values,y[-1].values])
+    delta_x = np.max(np.diff(x))
+    delta_y = np.max(np.diff(y))
+
+    # calculate scale increments
+    scale_incs = calc_scale_increments(x,y,max_r,verbose=False)
+    scale_incs.r.attrs["units"] = "m"
+    r = scale_incs.r
+
+    # assign and/or check length scales
+    min_ell = r.values[1]
+    max_ell = r.values[len(r)//2]
+    print(f"\nmin. allowed \ell = {min_ell:.4g} m")
+    print(f"\nmax. allowed \ell = {max_ell:.4g} m")
+    if length_scales is None:
+        length_scales = r.values[1:len(r)//2]
+    # ensure ascending
+    length_scales = np.sort(length_scales)
+    length_scales = length_scales[
+        (length_scales >= min_ell) & (length_scales <= max_ell)
+    ]
+    print("\nlength_scales = ", length_scales)
+    if len(length_scales) == 0:
+        print(f"\nError! Invalid length_scales specified. \ell must be <= {max_ell:.5g} m")
+        sys.exit(1)
+    #endif
+
+    # compute delta u delta scalar squared integrated over angles for all |r|
+    print(f"\n\n\nCalculating angular integral for r={r[0].values/1000:.4g} km to r={r[-1].values/1000:.4g} km")
+    delta_u_delta_scalar_squared = calc_increment_integrand(
+        ds_u_3D, scale_incs, calc_delta_u_delta_scalar_squared, delta_x, delta_y,
+        xdim=x_coord_name, ydim=y_coord_name, xbounds=x_bounds, ybounds=y_bounds,
+        x_bound_field=x_coord_boundary, y_bound_field=y_coord_boundary,
+        precision=precision, verbose=True, varname=varname
+    )
+    delta_u_delta_scalar_squared = delta_u_delta_scalar_squared.transpose(
+        "r","time",x_coord_name,y_coord_name,"pressure"
+    )
+    if x_coord_units == "deg":
+        delta_u_delta_scalar_squared = delta_u_delta_scalar_squared.assign_coords(
+            {x_coord_name:_x.values,y_coord_name:_y.values}
+        )
+        delta_u_delta_scalar_squared[x_coord_name].attrs = _x.attrs
+        delta_u_delta_scalar_squared[y_coord_name].attrs = _y.attrs
+    # add option to save integrand
+
+    # calculate scale-space integral given integrand, length scales, geometry specification
+    integrand = delta_u_delta_scalar_squared
+    r = integrand.r
+    # calculate inter-scale kinetic energy transfer
+    Dl_scalar = (1./4.)*calc_scale_space_integral(
+        integrand, length_scales=length_scales, geometry="2D",
+        name=f"Dl_{varname}"
+    ) # should add options for kernel specification
+
+    Dl_scalar = Dl_scalar.assign_attrs(
+        {
+            "long_name": f"inter_scale_transfer_of_{varname}_variance",
+            "units": "m2 s-3",
+            "description": \
+            f"Transfer of {varname} variance across a length scale L computed using the formalism of "\
+            "Duchon and Robert (2000) [DOI 10.1088/0951-7715/13/1/312].",
+            "sign_convention": "Positive to smaller scales.",
+            "LoSSETT_version": LOSSETT_VN,
+            "input_data_attributes": repr(input_attrs)
+        }
+    ) # should add also kernel_attrs dict (for kernel type, dimensionality, length scale-to-resolution conversion)
+    # and integration_attrs dict (for integral approximations e.g. Cartesian vs. spherical, uniform grid etc.)
+    
+    return Dl_scalar;
+
 def calc_inter_scale_energy_transfer_thermo():
     return 0;
 
@@ -204,7 +340,7 @@ def calc_increment_integrand(
         field, scale_incs, function, delta_x, delta_y,
         xdim, ydim, xbounds, ybounds, x_bound_field=np.nan,
         y_bound_field=np.nan, precision=1e-10, conv_fac=1.0,
-        verbose=False
+        verbose=False, **kwargs
 ):
     import psutil
     pid = os.getpid()
@@ -246,7 +382,7 @@ def calc_increment_integrand(
                     )
                     _phi_integrand += function(
                         field, field_shifted, n_x*delta_x, n_y*delta_y,
-                        delta_r_z=None, dims="2D"
+                        delta_r_z=None, dims="2D", **kwargs
                     )
                 _phi_integrand /= len(loc)
             else:
@@ -259,7 +395,7 @@ def calc_increment_integrand(
                 )
                 _phi_integrand = function(
                     field, field_shifted, n_x*delta_x, n_y*delta_y,
-                    delta_r_z=None, dims="2D"
+                    delta_r_z=None, dims="2D", **kwargs
                 )
             _phi_integrand = _phi_integrand.assign_coords({"angle":phi})
             _phi_integrand = _phi_integrand.assign_coords({"r":R})
@@ -377,11 +513,17 @@ def calc_delta_u_cubed(ds, ds_shifted, delta_r_x, delta_r_y, delta_r_z=None, dim
     
     return delta_u_cubed;
 
-def calc_delta_u_delta_scalar_squared(ds, ds_shifted, varname, delta_r_x, delta_r_y, delta_r_z=None, dims="2D"):
+def calc_delta_u_delta_scalar_squared(
+        ds, ds_shifted, delta_r_x, delta_r_y,
+        varname=None, delta_r_z=None, dims="2D"
+):
+    if varname is None:
+        print("\nError! varname must not be None. Exiting.")
+        sys.exit(1)
+        
     ds_increment = ds_shifted - ds
     delta_u = ds_increment["u"]
     delta_v = ds_increment["v"]
-    delta_w = ds_increment["w"]
     delta_scalar_squared = ds_increment[varname]**2
 
     if dims == "2D":
@@ -389,9 +531,12 @@ def calc_delta_u_delta_scalar_squared(ds, ds_shifted, varname, delta_r_x, delta_
         delta_u_dot_r = (delta_u*delta_r_x + delta_v*delta_r_y) / r_mag
     elif dims == "3D":
         r_mag = np.sqrt(delta_r_x**2 + delta_r_y**2 + delta_r_z**2)
+        delta_w = ds_increment["w"]
         delta_u_dot_r = (delta_u*delta_r_x + delta_v*delta_r_y + delta_w*delta_r_z) / r_mag
 
-    delta_u_delta_scalar_squared = (delta_u_dot_r * delta_scalar_squared).rename(f"delta_u_delta_{varname}_squared")
+    delta_u_delta_scalar_squared = (delta_u_dot_r * delta_scalar_squared).rename(
+        f"delta_u_delta_{varname}_squared"
+    )
     
     return delta_u_delta_scalar_squared;
 
