@@ -12,6 +12,10 @@ Note that this code is currently a work-in-progress.
 
 ## Repository Structure
 
+> **Notice:** the functionality in `lossett_control` and `lossett_plotting` will soon only be available in the new repo **[LoSSETT_ANCIL](https://github.com/ElliotMG/LoSSETT_ANCIL)**. This repository will remain focused on the core computation.
+
+---
+
 Within `src`:
 
 * `lossett/calc` contains the core computational routines for calculating inter-scale energy transfers.
