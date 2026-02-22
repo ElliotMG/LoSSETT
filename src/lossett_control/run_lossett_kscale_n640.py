@@ -6,6 +6,7 @@ import mo_pack
 import numpy as np
 import xarray as xr
 import datetime as dt
+import time
 
 from lossett_control.preprocessing.preprocess_kscale import check_longitude, \
     parse_period_id, parse_dri_mod_id, parse_nest_mod_id
@@ -49,7 +50,20 @@ if __name__ == "__main__":
     # output directory
     OUT_DIR_ROOT = sys.argv[9] # required
     OUT_DIR = os.path.join(OUT_DIR_ROOT, period, "n640_regrid")
-    Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
+    try:
+        Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
+    except FileExistsError:
+        time.sleep(5)
+        try:
+            Path(OUT_DIR).mkdir(parents=True, exist_ok=True)
+        except:
+            print(
+                "Unexpected error. \n"\
+                "Either you're actually pointing to a file, in which case sort it out; \n"\
+                "or the thing you're pointing to thinks it's a file despite the fact it \n"\
+                "is obviously a directory. Exiting."
+            )
+            sys.exit(1)
 
     # optional arguments
     try:
