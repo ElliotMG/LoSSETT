@@ -97,8 +97,8 @@ def calculate_great_circle_distance_and_bearing(lat1, lon1, lat2, lon2, R=RADIUS
 
 if __name__ == "__main__":
     # 0p5deg
-    lon_step = 0.5
-    lat_step = 0.5
+    #lon_step = 0.5
+    #lat_step = 0.5
     # n320
     #lon_step = 0.5625
     #lat_step = 0.375
@@ -106,8 +106,8 @@ if __name__ == "__main__":
     #lon_step = 0.28125
     #lat_step = 0.1875
     # n1280
-    #lon_step = 0.140625
-    #lat_step = 0.09375
+    lon_step = 0.140625
+    lat_step = 0.09375
     # n2560
     #lon_step = 0.0703125
     #lat_step = 0.046875
@@ -116,8 +116,23 @@ if __name__ == "__main__":
     lats = np.append(lats, lats[-1] + lat_step)
     lons, lats = np.meshgrid(lons, lats)
 
+    ds_n1280 = xr.open_dataset(
+        "/gws/nopw/j04/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data/"\
+        "DYAMOND_SUMMER/glm.n1280_GAL9.uvw_20160815T00.nc"
+    )
+    
+    lon_attrs = ds_n1280.longitude.attrs
+    ds_n1280.coords["longitude"] = (ds_n1280.coords["longitude"] + 180) % 360 - 180
+    ds_n1280 = ds_n1280.sortby(ds_n1280.longitude)
+    ds_n1280 = ds_n1280.isel(time=0).sel(pressure=200)
+    print(ds_n1280)
+
+    u_n1280 = ds_n1280.u
+    v_n1280 = ds_n1280.v
+    
     lon_origin = 25.
-    lat_origin = np.array([0.,10.,20.,30.,40.,50.,60.,70.,80.])
+    lat_origin = np.array([30.])
+    #lat_origin = np.array([0.,10.,20.,30.,40.,50.,60.,70.,80.])
 
     distances = []
     bearings = []
@@ -156,44 +171,247 @@ if __name__ == "__main__":
     ).assign_coords({"origin_latitude":lat_origin})
 
     print(distances)
-    sys.exit(1)
+
+    distances = distances.squeeze()
+    bearings = bearings.squeeze()
 
     delta_r = 220.  # km
     delta_r *= 1000 # convert to m
-    r1 = 5000. # km
+    r1 = 1000. # km
     r1 *= 1000 # convert to m
-    r2 = 10000. # km
+    r2 = 5000. # km
     r2 *= 1000 # convert to m
+    r3 = 10000. # km
+    r3 *= 1000 # convert to m
 
-    dist_mask1 = np.abs(distances - r1) < delta_r /2
-    dist_mask1 = dist_mask1.astype("float")
-    dist_mask1[dist_mask1==0] = np.nan
+    u_origin = u_n1280.sel(
+        latitude=distances.origin_latitude,
+        longitude=lon_origin,
+        method="nearest"
+    )
+    v_origin = v_n1280.sel(
+        latitude=distances.origin_latitude,
+        longitude=lon_origin,
+        method="nearest"
+    )
 
-    dist_mask2 = np.abs(distances - r2) < delta_r /2
-    dist_mask2 = dist_mask2.astype("float")
-    dist_mask2[dist_mask2==0] = np.nan
+    du = u_n1280-u_origin
+    dv = v_n1280-v_origin
+    du_sq = du**2 + dv**2
+    # this actually should be u(x2)*sin(final bearing) - u(x1)*sin(init. bearing)
+    # + v(x2)*cos(final bearing) - v(x1)*cos(init. bearing)
+    # I think du^2 is still OK though?
+    du_dot_rhat = du*np.sin(bearings) + dv*np.cos(bearings)
+
+    dist_mask1 = xr.where(np.abs(distances - r1) < delta_r/2, 1., np.nan)
+    dist_mask2 = xr.where(np.abs(distances - r2) < delta_r/2, 1., np.nan)
+    dist_mask3 = xr.where(np.abs(distances - r3) < delta_r/2, 1., np.nan)
+    u_mask1 = xr.where(np.abs(distances - r1) < delta_r/2, u_n1280, np.nan)
+    u_mask2 = xr.where(np.abs(distances - r2) < delta_r/2, u_n1280, np.nan)
+    u_mask3 = xr.where(np.abs(distances - r3) < delta_r/2, u_n1280, np.nan)
+    du_mask1 = xr.where(np.abs(distances - r1) < delta_r/2, du, np.nan)
+    du_mask2 = xr.where(np.abs(distances - r2) < delta_r/2, du, np.nan)
+    du_mask3 = xr.where(np.abs(distances - r3) < delta_r/2, du, np.nan)
+    dv_mask1 = xr.where(np.abs(distances - r1) < delta_r/2, dv, np.nan)
+    dv_mask2 = xr.where(np.abs(distances - r2) < delta_r/2, dv, np.nan)
+    dv_mask3 = xr.where(np.abs(distances - r3) < delta_r/2, dv, np.nan)
+    du_sq_mask1 = xr.where(np.abs(distances - r1) < delta_r/2, du_sq, np.nan)
+    du_sq_mask2 = xr.where(np.abs(distances - r2) < delta_r/2, du_sq, np.nan)
+    du_sq_mask3 = xr.where(np.abs(distances - r3) < delta_r/2, du_sq, np.nan)
+    du_dot_rhat_mask1 = xr.where(np.abs(distances - r1) < delta_r/2, du_dot_rhat, np.nan)
+    du_dot_rhat_mask2 = xr.where(np.abs(distances - r2) < delta_r/2, du_dot_rhat, np.nan)
+    du_dot_rhat_mask3 = xr.where(np.abs(distances - r3) < delta_r/2, du_dot_rhat, np.nan)
+    
+    fig, axes = plt.subplots(
+        nrows=1, ncols=2,
+        subplot_kw={"projection":cpy.crs.PlateCarree()},
+        figsize=(20,10)
+    )
+    pc_r = axes[0].pcolormesh(lons,lats,distances/1000,cmap="magma_r", transform=cpy.crs.PlateCarree())
+    axes[0].plot(lon_origin, lat_origin, marker="x", color="C2", transform=cpy.crs.PlateCarree())
+    axes[0].pcolormesh(lons,lats,dist_mask1,cmap="binary", transform=cpy.crs.PlateCarree())
+    axes[0].pcolormesh(lons,lats,dist_mask2,cmap="binary", transform=cpy.crs.PlateCarree())
+    axes[0].pcolormesh(lons,lats,dist_mask3,cmap="binary", transform=cpy.crs.PlateCarree())
+    plt.colorbar(
+        pc_r, orientation="horizontal",
+        label=f"great circle distance from {distances.origin_latitude:.4g}N, {lon_origin:.4g}E [km]"
+    )
+    pc_b = axes[1].pcolormesh(lons,lats,bearings,cmap="twilight_shifted", transform=cpy.crs.PlateCarree())
+    axes[1].plot(lon_origin, distances.origin_latitude, marker="x", color="C2", transform=cpy.crs.PlateCarree())
+    plt.colorbar(
+        pc_b, orientation="horizontal",
+        label=f"initial bearing along great circle path\nfrom "\
+        f"{distances.origin_latitude:.4g}N, {lon_origin:.4g}E [rad.]"
+    )
+    for ax in axes:
+        ax.coastlines()
 
     fig, axes = plt.subplots(
         nrows=1, ncols=2,
         subplot_kw={"projection":cpy.crs.PlateCarree()},
         figsize=(20,10)
     )
-    pc_r = axes[0].pcolormesh(lons,lats,distances/1000,cmap="magma_r")
-    axes[0].plot(lon_origin, lat_origin, marker="x", color="C2")
-    axes[0].pcolormesh(lons,lats,dist_mask1,cmap="binary")
-    axes[0].pcolormesh(lons,lats,dist_mask2,cmap="binary")
-    plt.colorbar(
-        pc_r, orientation="horizontal",
-        label=f"great circle distance from {lat_origin:.4g}N, {lon_origin:.4g}E [km]"
+    mag_u = 60
+    pc_u = axes[0].pcolormesh(
+        lons,
+        lats,
+        u_n1280,
+        cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
     )
-    pc_b = axes[1].pcolormesh(lons,lats,bearings,cmap="twilight_shifted")
-    axes[1].plot(lon_origin, lat_origin, marker="x", color="C2")
     plt.colorbar(
-        pc_b, orientation="horizontal",
-        label=f"initial bearing along great circle path\nfrom {lat_origin:.4g}N, {lon_origin:.4g}E [rad.]"
+        pc_u, orientation="horizontal",
+        label=f"zonal velocity at 200 hPa [m s-1]",
+        extend="both"
+    )
+    pc_u = axes[1].pcolormesh(
+        lons,lats,u_mask1,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    axes[1].pcolormesh(
+        lons,lats,u_mask2,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    axes[1].pcolormesh(
+        lons,lats,u_mask3,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    plt.colorbar(
+        pc_u, orientation="horizontal",
+        label=f"zonal velocity at 200 hPa [m s-1]",
+        extend="both"
     )
     for ax in axes:
         ax.coastlines()
+        ax.plot(lon_origin, distances.origin_latitude, marker="x", color="C2", transform=cpy.crs.PlateCarree())
+
+    # \delta u, \delta v
+    fig, axes = plt.subplots(
+        nrows=1, ncols=2,
+        subplot_kw={"projection":cpy.crs.PlateCarree()},
+        figsize=(20,10)
+    )
+    mag_u = 60
+    pc_du = axes[0].pcolormesh(
+        lons,lats,du_mask1,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    axes[0].pcolormesh(
+        lons,lats,du_mask2,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    axes[0].pcolormesh(
+        lons,lats,du_mask3,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    plt.colorbar(
+        pc_du, orientation="horizontal",
+        label=f"$\delta u$ at 200 hPa [m s-1]",
+        extend="both",
+        ax=axes[0]
+    )
+    pc_dv = axes[1].pcolormesh(
+        lons,lats,dv_mask1,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    axes[1].pcolormesh(
+        lons,lats,dv_mask2,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    axes[1].pcolormesh(
+        lons,lats,dv_mask3,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    plt.colorbar(
+        pc_dv, orientation="horizontal",
+        label=f"$\delta v$ at 200 hPa [m s-1]",
+        extend="both",
+        ax=axes[1]
+    )
+    for ax in axes:
+        ax.coastlines()
+        ax.plot(lon_origin, distances.origin_latitude, marker="x", color="C2", transform=cpy.crs.PlateCarree())
+
+    # | \delta u |^2, \delta u . r^hat
+    fig, axes = plt.subplots(
+        nrows=1, ncols=2,
+        subplot_kw={"projection":cpy.crs.PlateCarree()},
+        figsize=(20,10)
+    )
+    mag_u = 800
+    pc_du_sq = axes[0].pcolormesh(
+        lons,lats,du_sq_mask1,cmap="magma",
+        vmin=0,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    axes[0].pcolormesh(
+        lons,lats,du_sq_mask2,cmap="magma",
+        vmin=0,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    axes[0].pcolormesh(
+        lons,lats,du_sq_mask3,cmap="magma",
+        vmin=0,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    plt.colorbar(
+        pc_du_sq, orientation="horizontal",
+        label=r"$|\delta \mathbf{u}^2|$ at 200 hPa [m2 s-2]",
+        extend="both",
+        ax=axes[0]
+    )
+    mag_u = 20
+    pc_du_dot_rhat = axes[1].pcolormesh(
+        lons,lats,du_dot_rhat_mask1,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    axes[1].pcolormesh(
+        lons,lats,du_dot_rhat_mask2,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    axes[1].pcolormesh(
+        lons,lats,du_dot_rhat_mask3,cmap="RdBu_r",
+        vmin=-mag_u,
+        vmax=mag_u,
+        transform=cpy.crs.PlateCarree()
+    )
+    plt.colorbar(
+        pc_du_dot_rhat, orientation="horizontal",
+        label=r"$\delta \mathbf{u} \cdot \hat{\mathbf{r}}$ at 200 hPa [m s-1]",
+        extend="both",
+        ax=axes[1]
+    )
+    for ax in axes:
+        ax.coastlines()
+        ax.plot(lon_origin, distances.origin_latitude, marker="x", color="C2", transform=cpy.crs.PlateCarree())
+        
     plt.show()
 
     print("\n\n\nEND.")
