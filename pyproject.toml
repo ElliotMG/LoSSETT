@@ -11,15 +11,13 @@ readme = "README.md"
 requires-python = ">=3.11" # required for compatibility with mo_pack
 dependencies = [
     "xarray",
-    "scitools-iris",
-    "numpy<2.0.0", # mo_pack conflicts w/ numpy >=2.0.0
+    "numpy",
     "pandas",
     "datetime",
-    "matplotlib",
-    "cartopy",
     "pillow>=11.3.0",
-    "mo_pack @ git+https://github.com/SciTools/mo_pack.git",
-    "fonttools>=4.60.2"
+    "fonttools>=4.60.2",
+    "psutil",
+    "matplotlib"
 ]
 packages = [
     { include = "lossett" },
