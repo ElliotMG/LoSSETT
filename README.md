@@ -10,11 +10,13 @@ With thanks to Valerio Lembo (ISAC-CNR) for sharing some of the original MATLAB 
 
 Note that this code is currently a work-in-progress.
 
-## Repository Structure
 
-> **Notice:** the functionality in `lossett_control` and `lossett_plotting` will soon only be available in the new repo **[LoSSETT_ANCIL](https://github.com/ElliotMG/LoSSETT_ANCIL)**. This repository will remain focused on the core computation.
+> **Notice:** the previous functionality that was in `lossett_control` and `lossett_plotting` is now available in the new repo **[LoSSETT_ANCIL](https://github.com/ElliotMG/LoSSETT_ANCIL)**. This repository is now only focused on the core computation.
 
 ---
+
+
+## Repository Structure
 
 Within `src`:
 
