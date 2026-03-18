@@ -73,18 +73,17 @@ def filter_field(
     # ensure ascending
     print("\n\n\n")
     print(f"min_ell = {min_ell}")
-    print(f"max_ell = {min_ell}")
+    print(f"max_ell = {max_ell}")
     length_scales = np.sort(length_scales)
     print("length_scales = ", length_scales)
     length_scales = length_scales[
         (length_scales <= max_ell)&(length_scales >= min_ell)
     ]
-    print("clipped length_scales = ", length_scales)
-    sys.exit(1)
     if len(length_scales) == 0:
-        print(f"\nError! Invalid length_scales specified. \ell must be <= {max_ell:.5g} m")
+        print(f"\nError! Invalid length_scales specified. ell must be <= {max_ell:.5g} m")
         sys.exit(1)
     #endif
+    print("clipped length_scales = ", length_scales)
     
     # shifted field
     field_shifted = calc_increment_integrand(
@@ -104,9 +103,6 @@ def filter_field(
         field_shifted, length_scales=length_scales, geometry="2D",
         name=name, kernel_gradient=False
     )
-    #field_filtered = field_filtered.transpose(
-    #    "r","time",x_coord_name,y_coord_name,"pressure"
-    #)
 
     field_filtered = field_filtered.assign_attrs(
         {

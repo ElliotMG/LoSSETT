@@ -443,7 +443,7 @@ def calc_scale_space_integral(
     else:
         weight = G
 
-    # integrate only over the support of dG_dr
+    # integrate only over support of weight
     # NOTE: there must be a way to vectorise this?
     print("\nCalculating scale-space integral.")
     integral = []
