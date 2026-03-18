@@ -10,18 +10,21 @@ With thanks to Valerio Lembo (ISAC-CNR) for sharing some of the original MATLAB 
 
 Note that this code is currently a work-in-progress.
 
+
+> **Notice:** the previous functionality that was in `lossett_control` and `lossett_plotting` is now available in the new repo **[LoSSETT_ANCIL](https://github.com/ElliotMG/LoSSETT_ANCIL)**. This repository is now only focused on the core computation.
+
+---
+
+
 ## Repository Structure
 
 Within `src`:
 
 * `lossett/calc` contains the core computational routines for calculating inter-scale energy transfers.
 * `lossett/filtering` contains utilities for filtering and integration.
-* `lossett_control/control` contains Python and Bash scripts for orchestrating the execution of LoSSETT workflows, including on test data.
-* `lossett_control/prepreocessing` contains Python scripts for pre-processing data to match the specific cases in `lossett_control/control`.
-* `lossett_plotting` contains various example plotting Python scripts and iPython notebooks.
 
 ## Prerequisites
-Current distribution of python (Python 3) - built on `xarray` with `matplotlib` and `cartopy` for plotting. See `pyproject.toml` for full list of requirements.
+Current distribution of python (Python 3) - built with `xarray` and `numpy`. See `pyproject.toml` for full list of requirements.
 
 ## Installation
 
