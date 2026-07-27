@@ -4,7 +4,7 @@ import numpy as np
 import xarray as xr
 import matplotlib.pyplot as plt
 
-from CalcScaleIncrements import CalcScaleIncrements, roll_with_boundary_handling, calc_delta_u_cubed
+from lossett.calc.calc_inter_scale_transfers import calc_scale_increments, roll_with_boundary_handling, calc_delta_u_cubed
 
 radius_earth = 6.371e6 # radius of Earth in m
 deg_to_m = 110000.0 # conversion of latitudinal degrees to m
