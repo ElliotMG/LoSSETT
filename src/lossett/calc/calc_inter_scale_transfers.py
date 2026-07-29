@@ -405,7 +405,6 @@ def calc_increment_integrand(
 
         phi_integrand = xr.concat(phi_integrand,"angle")
         # add strict nan handling switch?
-        phi_integral = phi_integrand.integrate("angle").compute()
         phi_integral = phi_integrand.fillna(0).integrate("angle").compute()
         r_integrand.append(phi_integral)
         if verbose:
