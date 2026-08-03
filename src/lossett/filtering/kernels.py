@@ -39,11 +39,11 @@ def filter_kernel(length_scale,r,npts=1e4,return_derivative=True,normalization="
     """
     _kernel = standard_mollifier(r,length_scale=length_scale)
     if normalization == "2D":
-        integral = 2*np.pi*np.trapz(r*_kernel,x=r)
+        integral = 2*np.pi*np.trapezoid(r*_kernel,x=r)
     elif normalization == "sphere":
-        integral = 2*np.pi*np.trapz(sphere_radius*np.sin(r/sphere_radius)*_kernel,x=r)
+        integral = 2*np.pi*np.trapezoid(sphere_radius*np.sin(r/sphere_radius)*_kernel,x=r)
     elif normalization == "3D":
-        integral = 4*np.pi*np.trapz((r**2)*_kernel,x=r)
+        integral = 4*np.pi*np.trapezoid((r**2)*_kernel,x=r)
     norm = 1 / integral
 
     if not return_derivative:
