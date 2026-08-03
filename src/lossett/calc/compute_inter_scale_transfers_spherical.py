@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
+import sys
 import os
 import numpy as np
 import xarray as xr
 import dask.array as da
 import time
+from datetime import datetime, UTC
 import argparse
 import logging
 from importlib.metadata import version
 
 from lossett.calc.compute_spherical_geometry import build_geometry_filename, build_regular_latlon_grid, GRID_DEFS, RADIUS_EARTH, DTYPES
 
+# Module-scope variables
 LOSSETT_VN = version("lossett")
+logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -76,6 +80,15 @@ def parse_args():
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
 
+    parser.add_argument(
+        "--use-angular-weights",
+        action="store_true",
+        help=(
+            "Use precomputed angular quadrature weights instead "
+            "of uniform weighting."
+        )
+    )
+
     return parser.parse_args()
 
 def setup_logging(level="INFO"):
@@ -109,31 +122,35 @@ def load_geometry(geom_path, grid, chunk_origin, nlat, nlon):
         ds_geom, distances, distance_edges, origin_lat_chunk_bounds, nbins
     )
 
-def load_velocity_field(date="20160801", interp_lats=None, interp_lons=None):
-    ds_n1280 = xr.open_dataset(
-        "/gws/ssde/j25b/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data/"\
-        f"DYAMOND_SUMMER/glm.n1280_GAL9.uvw_{date}T00.nc",
+def load_velocity_field(date="20160801", interp_lats=None, interp_lons=None, return_fpath=True):
+    # getting the file path should be another function
+    # this function should take fpath as an argument & just do the loading & tidying
+    u_fpath = "/gws/ssde/j25b/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data/"\
+        f"DYAMOND_SUMMER/glm.n1280_GAL9.uvw_{date}T00.nc"
+    ds_u = xr.open_dataset(
+        u_fpath,
         decode_timedelta=False # since we're immediately dropping the timedelta variables
     ).drop_vars(["forecast_reference_time","forecast_period"])
-    lon_attrs = ds_n1280.longitude.attrs
-    ds_n1280.coords["longitude"] = (ds_n1280.coords["longitude"] + 180) % 360 - 180
-    ds_n1280 = ds_n1280.sortby(ds_n1280.longitude)
-    times = ds_n1280.time
-    pressures = ds_n1280.pressure
-    ds_n1280 = ds_n1280.isel(time=0).sel(pressure=200)
+    lon_attrs = ds_u.longitude.attrs
+    ds_u.coords["longitude"] = (ds_u.coords["longitude"] + 180) % 360 - 180
+    ds_u = ds_u.sortby(ds_u.longitude)
+    ds_u.longitude.attrs = lon_attrs
+    #times = ds_u.time
+    #pressures = ds_u.pressure
+    ds_u = ds_u.isel(time=0).sel(pressure=200)
 
-    u_n1280 = ds_n1280.u
-    v_n1280 = ds_n1280.v
+    u = ds_u.u
+    v = ds_u.v
 
     if interp_lats is not None or interp_lons is not None:
         # interpolate to coarser grid for testing
-        u = u_n1280.interp(latitude=interp_lats, longitude=interp_lons)
-        v = v_n1280.interp(latitude=interp_lats, longitude=interp_lons)
+        u = u.interp(latitude=interp_lats, longitude=interp_lons)
+        v = v.interp(latitude=interp_lats, longitude=interp_lons)
+
+    if return_fpath:
+        return u, v, u_fpath
     else:
-        u = u_n1280
-        v = v_n1280
-    
-    return u,v
+        return u, v
 
 def create_du_cubed_template(
         distances, origin_latitudes, origin_longitudes,
@@ -145,7 +162,7 @@ def create_du_cubed_template(
     # should possibly modify to include time, pressure
     template = xr.Dataset(
         {
-            "delta_u_cubed_angular_average": (
+            "delta_u_cubed_angular_integral": (
                 ("great_circle_distance", "origin_latitude", "origin_longitude"),
                 #  may be better to have a different dimension ordering, but this is CF-compliant
                 da.empty(
@@ -168,6 +185,40 @@ def create_du_cubed_template(
             "origin_latitude": origin_latitudes,
             "origin_longitude": origin_longitudes,
         },
+    )
+
+    # add attributes
+    # global
+    template.attrs.update(
+        {
+            "title": "Angular integral of delta_u cubed",
+            "project": "LoSSETT",
+            "EARTH_RADIUS": RADIUS_EARTH,
+        }
+    )
+    
+    # coordinates
+    template["great_circle_distance"].attrs = {
+        "units": "m",
+        "long_name": "Great-circle distance",
+    }
+    template["origin_latitude"].attrs = {
+        "units": "degrees_north",
+    }
+    template["origin_longitude"].attrs = {
+        "units": "degrees_east",
+    }
+
+    # data variable
+    template["delta_u_cubed_angular_integral"].attrs.update(
+        {
+            "units": "m3 s-3",
+            "long_name": (
+                "Angular integral of delta_u cubed"
+            ),
+            "description": "Locally angle-integrated third-order longitudinal velocity structure function."
+            "Velocity increments computed on pressure surfaces along great-circle displacements."
+        }
     )
     return template
 
@@ -268,35 +319,93 @@ def compute_delta_u_cubed(u, v, u0, v0, sin_init, cos_init, sin_final, cos_final
     
     return du_cubed
 
-def bin_average(values, bins, nbins, weights=None):
-
+def bin_integrate(values, bins, nbins, weights=None):
     if weights is None:
-        weights = np.ones_like(values)
+        sum_bin = np.bincount(
+            bins,
+            weights=values,
+            minlength=nbins,
+        )
         
-    sum_bin = np.bincount(
-        bins,
-        weights=values,
-        minlength=nbins,
-    )
-
-    count_bin = np.bincount(
-        bins,
-        minlength=nbins,
-    )
+    else:    
+        sum_bin = np.bincount(
+            bins,
+            weights=values*weights,
+            minlength=nbins,
+        )
     
-    if len(count_bin) != nbins:
-        # remove overflow bins (SHOULD PROBABLY CHECK FOR BOTH OVERFLOW AND UNDERFLOW)
-        sum_bin = sum_bin[:nbins]
-        count_bin = count_bin[:nbins]
+    if len(sum_bin) > nbins:
+        raise ValueError(
+            "Found distance-bin overflow."
+        )
 
-    return np.divide(
-        sum_bin,
-        count_bin,
-        out=np.full(nbins, np.nan),
-        where=count_bin > 0,
-    )
+    return sum_bin
 
-def compute_du3_angular_average_global(
+def angular_integral_by_distance_bin(
+    integrand,
+    bins,
+    nbins,
+    weights=None,
+):
+    """
+    Compute angular integral for a single origin latitude.
+
+    Parameters
+    ----------
+    integrand : ndarray
+        Integrand values.
+
+    bins : ndarray
+        Distance-bin indices corresponding to integrand. Includes both
+        valid and invalid points.
+
+    nbins : int
+        Number of distance bins.
+
+    weights : ndarray or None
+        Angular quadrature weights.
+        If None, use uniform weighting.
+
+    Returns
+    -------
+    integral : ndarray
+        Angular integral as a function of distance.
+    """
+
+    valid = np.isfinite(integrand)
+
+    integrand = integrand[valid]
+    bins_valid = bins[valid]
+
+    if weights is not None:
+
+        weights = weights[valid]
+
+        return bin_integrate(
+            integrand,
+            bins_valid,
+            nbins,
+            weights=weights,
+        )
+
+    else:
+        n_total = np.bincount(
+            bins,
+            minlength=nbins,
+        )
+
+        return np.divide(
+            2*np.pi * bin_integrate(
+                integrand,
+                bins_valid,
+                nbins,
+            ),
+            n_total,
+            out=np.full(nbins, np.nan),
+            where=n_total > 0,
+        )
+
+def compute_du3_angular_integral_global(
         u,
         v,
         u0,
@@ -304,8 +413,8 @@ def compute_du3_angular_average_global(
         geom_chunk,
         nbins,
         dtype=np.float32,
-        weights=None,
-        profile=False
+        profile=False,
+        use_angular_weights=False,
 ):
     """
     Inputs
@@ -331,7 +440,7 @@ def compute_du3_angular_average_global(
 
     Returns
     -------
-    means
+    integrals
         (origin_latitude, nbins)
     """
     chunk_len = geom_chunk.sizes["origin_latitude"]
@@ -351,27 +460,57 @@ def compute_du3_angular_average_global(
             f"{time.perf_counter()-t0:.6f}s"
         )
     
-    # compute angular average (this should be a function)
+    # compute angular integral (this should be a function)
     if profile:
         t0 = time.perf_counter()
-    means = np.empty((chunk_len, nbins), dtype=dtype)
+    integrals = np.empty((chunk_len, nbins), dtype=dtype)
     for i in range(chunk_len):
-        vals = du_cubed.isel(origin_latitude=i).values.ravel()
+        du3 = du_cubed.isel(origin_latitude=i).values.ravel()
         bins = geom_chunk.great_circle_distance_bin.isel(origin_latitude=i).values.ravel()
-        means[i] = 2*np.pi*bin_average(vals, bins, nbins, weights=weights)
+        if use_angular_weights:
+            weights = geom_chunk.angular_weight.isel(origin_latitude=i).values.ravel()
+        else:
+            weights = None
+        integrals[i] = angular_integral_by_distance_bin(
+            du3,
+            bins,
+            nbins,
+            weights=weights,
+        )
+        """
+        # Exclude NaNs from angular integral
+        valid = np.isfinite(du3)
+        du3 = du3[valid]
+        bins = bins_all[valid]
+        if use_angular_weights:
+            weights = geom_chunk.angular_weight.isel(origin_latitude=i).values.ravel()
+            weights = weights[valid]
+            integrals[i] = bin_integrate(du3, bins, nbins, weights=weights)
+        else:
+            n_total = np.bincount(
+                bins_all,
+                minlength=nbins,
+            )
+            integrals[i] = np.divide(
+                2*np.pi * bin_integrate(du3, bins, nbins),
+                n_total,
+                out=np.full(nbins, np.nan),
+                where=n_total > 0.,
+            )
+        """
     #endfor
     if profile:
         logger.debug(
-            f"angular average (np.bincount): "
+            f"angular integral (np.bincount): "
             f"{time.perf_counter()-t0:.6f}s"
         )
         
     # clean up
     del du_cubed
             
-    return means
+    return integrals
 
-def compute_du3_angular_average_subset(
+def compute_du3_angular_integral_subset(
         u,
         v,
         u0,
@@ -380,8 +519,8 @@ def compute_du3_angular_average_subset(
         active_indices,
         nbins,
         dtype=np.float64,
-        weights=None,
-        profile=False
+        profile=False,
+        use_angular_weights=False
 ):
     """
     Inputs
@@ -408,7 +547,7 @@ def compute_du3_angular_average_subset(
 
     Returns
     -------
-    means
+    integrals
         (origin_latitude, nbins)
     """
 
@@ -417,7 +556,7 @@ def compute_du3_angular_average_subset(
     
     nchunk = len(active_indices)
 
-    means = np.empty(
+    integrals = np.empty(
         (nchunk, nbins),
         dtype=dtype,
     )
@@ -445,7 +584,7 @@ def compute_du3_angular_average_subset(
             i, ilat, ilon
         ]
 
-        bins = geom_chunk.great_circle_distance_bin.values[
+        bins_sel = geom_chunk.great_circle_distance_bin.values[
             i, ilat, ilon
         ]
 
@@ -458,18 +597,54 @@ def compute_du3_angular_average_subset(
             w=None
         )
 
+        if use_angular_weights:
+            weights = geom_chunk.angular_weight.values[
+                i,
+                ilat,
+                ilon,
+            ]
+        else:
+            weights = None
+
+        # compute angular integral
+        integrals[i] = angular_integral_by_distance_bin(
+            du3,
+            bins_sel,
+            nbins,
+            weights=weights,
+        )
+
+        """
         # accumulate by bin
-        means[i] = 2*np.pi*bin_average(du3, bins, nbins, weights=weights)
-        #means[i] = bin_average(du3, bins, nbins, weights=weights)
+        if use_angular_weights:
+            weights = geom_chunk.angular_weight.values[
+                i,
+                ilat,
+                ilon,
+            ]
+            weights = weights[valid]
+            integrals[i] = bin_integrate(du3, bins, nbins, weights=weights)
+        else:
+            n_total = np.bincount(
+                bins_all,
+                minlength=nbins,
+            )
+            integrals[i] = np.divide(
+                2*np.pi * bin_integrate(du3, bins, nbins),
+                n_total,
+                out=np.full(nbins, np.nan),
+                where=n_total > 0.,
+            )
+        """
 
     #endfor
     if profile:
         logger.debug(
-            f"du_cubed AND angular average: "
+            f"du_cubed AND angular integral: "
             f"{time.perf_counter()-t0:.6f}s"
         )
     
-    return means
+    return integrals
 
 def process_origin_longitude(
     olon,
@@ -480,11 +655,11 @@ def process_origin_longitude(
     active_indices,
     distances,
     dtype=np.float64,
-    weights=None,
+    use_angular_weights=False,
     profile=False
 ) -> xr.DataArray:
     """
-    Compute azimuthally averaged delta-u^3 for a single
+    Compute azimuthally integrated delta-u^3 for a single
     origin longitude.
 
     Parameters
@@ -512,7 +687,7 @@ def process_origin_longitude(
         Centres of great circle distance bins
 
     dtype:
-        dtype for computing means # THIS SHOULD PROBABLY BE REMOVED
+        dtype for computing integral # THIS SHOULD PROBABLY BE REMOVED
 
     Returns
     -------
@@ -550,7 +725,7 @@ def process_origin_longitude(
     
     if active_indices is None:
         # compute over the full sphere
-        du_cubed_ang_av = compute_du3_angular_average_global(
+        du_cubed_ang_int = compute_du3_angular_integral_global(
             u_roll,
             v_roll,
             u0,
@@ -558,11 +733,11 @@ def process_origin_longitude(
             geom_chunk,
             nbins,
             dtype=dtype,
-            weights=weights
+            use_angular_weights=use_angular_weights,
         )
     else:
         # compute within a spherical cap of radius max_R
-        du_cubed_ang_av = compute_du3_angular_average_subset(
+        du_cubed_ang_int = compute_du3_angular_integral_subset(
             u_roll,
             v_roll,
             u0,
@@ -571,11 +746,11 @@ def process_origin_longitude(
             active_indices,
             nbins, # should get nbins from geom_chunk
             dtype=dtype,
-            weights=weights
+            use_angular_weights=use_angular_weights,
         )
     #endif
     return xr.DataArray(
-        du_cubed_ang_av,
+        du_cubed_ang_int,
         dims=(
             "origin_latitude",
             "great_circle_distance",
@@ -584,7 +759,7 @@ def process_origin_longitude(
             "origin_latitude": geom_chunk.origin_latitude,
             "great_circle_distance": distances,
         },
-        name="delta_u_cubed_angular_average",
+        name="delta_u_cubed_angular_integral",
     ).expand_dims(
         origin_longitude=[olon]
     )
@@ -606,8 +781,9 @@ if __name__ == "__main__":
     save_dtype = DTYPES[args.save_dtype]
     calc_dtype = DTYPES[args.calc_dtype]
     force = args.force
+    profile = args.profile
+    use_angular_weights = args.use_angular_weights
     setup_logging(args.log_level)
-    logger = logging.getLogger(__name__)
     date = "20160801"
 
     logger.info(
@@ -615,7 +791,7 @@ if __name__ == "__main__":
         "################################################################################\n"
         f"### LoSSETT version: {LOSSETT_VN} #######################################################\n"
 
-        "### Function: compute_du_cubed_ang_av_spherical ################################\n"    
+        "### Function: compute_du_cubed_ang_int_spherical ###############################\n"    
         "################################################################################\n"
         "\n### CALCULATION INFO.\n"
         f"max_R = {(max_R if max_R is not None else RADIUS_EARTH * np.pi)/1e3:.6g} km\n"
@@ -642,9 +818,9 @@ if __name__ == "__main__":
     )
 
     # load velocity field
-    u, v = load_velocity_field(date=date, interp_lons=lons, interp_lats=lats)
+    u, v, u_fpath = load_velocity_field(date=date, interp_lons=lons, interp_lats=lats, return_fpath=True)
 
-    # create Zarr store for azimuthally-averaged delta u cubed
+    # create Zarr store for azimuthally-integrated delta u cubed
     if max_R is None:
         maxR_str = ""
     else:
@@ -664,21 +840,22 @@ if __name__ == "__main__":
             chunk_dist, chunk_lat, chunk_origin,
             dtype=save_dtype
         )
+        du3_template.attrs.update(
+            {
+                "source_file": os.path.basename(u_fpath),
+                "source_attributes": repr(u.attrs),
+                "lossett_version": LOSSETT_VN,
+                "run_command": " ".join(sys.argv),
+                "arguments": repr(vars(args)),
+                "history": f"{datetime.now(UTC).isoformat()}: Created by compute_inter_scale_transfers_spherical.py"
+            }
+        )
         du3_template.to_zarr(
             du3_fpath,
             mode="w",
             compute=False,
             zarr_format=2,
         )
-
-        # generate cos(lat) weights for area weighting
-        lat_weights_2d = np.cos(
-            np.deg2rad(u.latitude.values)
-        )[:, None]
-        lat_weights = np.broadcast_to(
-            lat_weights_2d,
-            u.shape
-        ).ravel()
 
         for olat_chunk in origin_lat_chunk_bounds:
             lat_start = ds_geom.origin_latitude.isel(origin_latitude=olat_chunk[0]).values
@@ -688,28 +865,27 @@ if __name__ == "__main__":
                 ds_geom, olat_chunk, distance_edges, max_R=max_R
             )
 
-            du_cubed_ang_av =[]
-            #for i_olon, olon in enumerate(origin_lons):
+            du_cubed_ang_int =[]
             for olon in origin_lons:
                 logger.debug(f"\nOrigin longitude = {olon}")
-                du_cubed_ang_av.append(
+                du_cubed_ang_int.append(
                     process_origin_longitude(
                         olon,
-                        #i_olon,
                         u,
                         v,
                         geom_chunk,
                         active_indices,
                         distances,
                         dtype=calc_dtype,
-                        weights=lat_weights
+                        use_angular_weights=use_angular_weights,
+                        profile=profile,
                     )
                 )                
             #endfor
             ds_out = xr.Dataset(
                 {
-                    "delta_u_cubed_angular_average": xr.concat(
-                        du_cubed_ang_av,
+                    "delta_u_cubed_angular_integral": xr.concat(
+                        du_cubed_ang_int,
                         dim=xr.DataArray(
                             origin_lons,
                             dims="origin_longitude",
@@ -719,12 +895,12 @@ if __name__ == "__main__":
                 }
             )
 
-            da = ds_out.delta_u_cubed_angular_average.astype(save_dtype)
+            da = ds_out.delta_u_cubed_angular_integral.astype(save_dtype)
             
             # save latitude chunk (just save the data variable to avoid write errors)
             ds_write = xr.Dataset(
                 {
-                    "delta_u_cubed_angular_average": (da.dims, da.data)
+                    "delta_u_cubed_angular_integral": (da.dims, da.data)
                 }
             ).reset_coords(drop=True)
             
