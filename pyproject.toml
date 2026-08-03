@@ -8,21 +8,17 @@ authors = [
 ]
 license = {text = "MIT"}
 readme = "README.md"
-requires-python = ">=3.11" # required for compatibility with mo_pack
+requires-python = ">=3.9" # may work with earlier but has only been tested on >=3.9
 dependencies = [
     "xarray",
     "numpy",
     "pandas",
     "datetime",
-    "pillow>=11.3.0",
-    "fonttools>=4.60.2",
     "psutil",
     "matplotlib"
 ]
 packages = [
     { include = "lossett" },
-    { include = "lossett_control" },
-    { include = "lossett_plot" },
 ]
 
 [project.urls]

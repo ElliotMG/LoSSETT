@@ -230,7 +230,7 @@ def calc_inter_scale_transfer_scalar_variance(
     # compute delta u delta scalar squared integrated over angles for all |r|
     print(f"\n\n\nCalculating angular integral for r={r[0].values/1000:.4g} km to r={r[-1].values/1000:.4g} km")
     delta_u_delta_scalar_squared = calc_increment_integrand(
-        ds_u_3D, scale_incs, calc_delta_u_delta_scalar_squared, delta_x, delta_y,
+        ds, scale_incs, calc_delta_u_delta_scalar_squared, delta_x, delta_y,
         xdim=x_coord_name, ydim=y_coord_name, xbounds=x_bounds, ybounds=y_bounds,
         x_bound_field=x_coord_boundary, y_bound_field=y_coord_boundary,
         precision=precision, verbose=True, varname=varname
@@ -258,7 +258,7 @@ def calc_inter_scale_transfer_scalar_variance(
     Dl_scalar = Dl_scalar.assign_attrs(
         {
             "long_name": f"inter_scale_transfer_of_{varname}_variance",
-            "units": "m2 s-3",
+            "units": units,
             "description": \
             f"Transfer of {varname} variance across a length scale L computed using the formalism of "\
             "Duchon and Robert (2000) [DOI 10.1088/0951-7715/13/1/312].",
@@ -358,6 +358,8 @@ def calc_increment_integrand(
     origin_y_index = np.argwhere(np.isfinite(r_0.values)).squeeze()[ydim_loc]
     r_integrand = []
     for R in scale_incs.r:
+        if np.abs(R) <= 1e-6:
+            continue
         # get indices
         print(f"\n\n\nr = {R:.5g}")
         mask = scale_incs.r_mask.sel(r=R)
@@ -403,7 +405,6 @@ def calc_increment_integrand(
 
         phi_integrand = xr.concat(phi_integrand,"angle")
         # add strict nan handling switch?
-        phi_integral = phi_integrand.integrate("angle").compute()
         phi_integral = phi_integrand.fillna(0).integrate("angle").compute()
         r_integrand.append(phi_integral)
         if verbose:
@@ -443,7 +444,7 @@ def calc_scale_space_integral(
     else:
         weight = G
 
-    # integrate only over the support of dG_dr
+    # integrate only over support of weight
     # NOTE: there must be a way to vectorise this?
     print("\nCalculating scale-space integral.")
     integral = []
