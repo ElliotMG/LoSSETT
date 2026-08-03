@@ -5,7 +5,12 @@ import xarray as xr
 import dask.array as da
 import time
 import argparse
-from compute_spherical_geometry import build_geometry_filename, build_regular_latlon_grid, GRID_DEFS, RADIUS_EARTH, DTYPES
+import logging
+from importlib.metadata import version
+
+from lossett.calc.compute_spherical_geometry import build_geometry_filename, build_regular_latlon_grid, GRID_DEFS, RADIUS_EARTH, DTYPES
+
+LOSSETT_VN = version("lossett")
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -60,7 +65,28 @@ def parse_args():
         action="store_true",
     )
 
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+    )
+
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+    )
+
     return parser.parse_args()
+
+def setup_logging(level="INFO"):
+    logging.basicConfig(
+        level=getattr(logging, level.upper()),
+        format=(
+            "%(asctime)s "
+            "%(levelname)s "
+            "%(message)s"
+        ),
+    )
 
 def load_geometry(geom_path, grid, chunk_origin, nlat, nlon):
     geom_fpath = build_geometry_filename(
@@ -86,7 +112,8 @@ def load_geometry(geom_path, grid, chunk_origin, nlat, nlon):
 def load_velocity_field(date="20160801", interp_lats=None, interp_lons=None):
     ds_n1280 = xr.open_dataset(
         "/gws/ssde/j25b/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data/"\
-        f"DYAMOND_SUMMER/glm.n1280_GAL9.uvw_{date}T00.nc"
+        f"DYAMOND_SUMMER/glm.n1280_GAL9.uvw_{date}T00.nc",
+        decode_timedelta=False # since we're immediately dropping the timedelta variables
     ).drop_vars(["forecast_reference_time","forecast_period"])
     lon_attrs = ds_n1280.longitude.attrs
     ds_n1280.coords["longitude"] = (ds_n1280.coords["longitude"] + 180) % 360 - 180
@@ -189,27 +216,31 @@ def prepare_distance_selection(
 
     return active_indices
 
-def load_geometry_chunk(ds_geom, olat_chunk, distance_edges, max_R=None):
+def load_geometry_chunk(ds_geom, olat_chunk, distance_edges, max_R=None, profile=False):
     
     # read geometry chunk
-    t0 = time.perf_counter()
+    if profile:
+        t0 = time.perf_counter()
     geom_chunk = ds_geom.isel(origin_latitude = slice(*olat_chunk)).load()
-    print(
-        f"Load geometry: "
-        f"{time.perf_counter()-t0:.6f}s"
-    )
+    if profile:
+        logger.debug(
+            f"Load geometry: "
+            f"{time.perf_counter()-t0:.6f}s"
+        )
     
     # extract indices where R <= max_R
-    t0 = time.perf_counter()
+    if profile:
+        t0 = time.perf_counter()
     active_indices = prepare_distance_selection(
         geom_chunk.great_circle_distance_bin.values,
         distance_edges,
         max_R=max_R,
     )
-    print(
-        f"Compute active indices "
-        f"{time.perf_counter()-t0:.6f}s"
-    )
+    if profile:
+        logger.debug(
+            f"Compute active indices "
+            f"{time.perf_counter()-t0:.6f}s"
+        )
     return geom_chunk, active_indices
 
 def compute_delta_u_cubed(u, v, u0, v0, sin_init, cos_init, sin_final, cos_final, w=None):
@@ -273,7 +304,8 @@ def compute_du3_angular_average_global(
         geom_chunk,
         nbins,
         dtype=np.float32,
-        weights=None
+        weights=None,
+        profile=False
 ):
     """
     Inputs
@@ -305,31 +337,34 @@ def compute_du3_angular_average_global(
     chunk_len = geom_chunk.sizes["origin_latitude"]
                 
     # compute du_cubed
-    t0 = time.perf_counter()
+    if profile:
+        t0 = time.perf_counter()
     du_cubed = compute_delta_u_cubed(
         u, v, u0, v0,
         geom_chunk.sine_initial_bearing, geom_chunk.cosine_initial_bearing,
         geom_chunk.sine_final_bearing, geom_chunk.cosine_final_bearing,
         w=None
     ).load()
-    print(
-        f"du_cubed: "
-        f"{time.perf_counter()-t0:.6f}s"
-    )
+    if profile:
+        logger.debug(
+            f"du_cubed: "
+            f"{time.perf_counter()-t0:.6f}s"
+        )
     
     # compute angular average (this should be a function)
-    t0 = time.perf_counter()
+    if profile:
+        t0 = time.perf_counter()
     means = np.empty((chunk_len, nbins), dtype=dtype)
     for i in range(chunk_len):
         vals = du_cubed.isel(origin_latitude=i).values.ravel()
         bins = geom_chunk.great_circle_distance_bin.isel(origin_latitude=i).values.ravel()
         means[i] = 2*np.pi*bin_average(vals, bins, nbins, weights=weights)
-        #means[i] = bin_average(vals, bins, nbins, weights=weights)
     #endfor
-    print(
-        f"angular average (np.bincount): "
-        f"{time.perf_counter()-t0:.6f}s"
-    )
+    if profile:
+        logger.debug(
+            f"angular average (np.bincount): "
+            f"{time.perf_counter()-t0:.6f}s"
+        )
         
     # clean up
     del du_cubed
@@ -345,7 +380,8 @@ def compute_du3_angular_average_subset(
         active_indices,
         nbins,
         dtype=np.float64,
-        weights=None
+        weights=None,
+        profile=False
 ):
     """
     Inputs
@@ -376,7 +412,8 @@ def compute_du3_angular_average_subset(
         (origin_latitude, nbins)
     """
 
-    t0 = time.perf_counter()
+    if profile:
+        t0 = time.perf_counter()
     
     nchunk = len(active_indices)
 
@@ -426,10 +463,11 @@ def compute_du3_angular_average_subset(
         #means[i] = bin_average(du3, bins, nbins, weights=weights)
 
     #endfor
-    print(
-        f"du_cubed AND angular average (reduce_using_indices): "
-        f"{time.perf_counter()-t0:.6f}s"
-    )
+    if profile:
+        logger.debug(
+            f"du_cubed AND angular average: "
+            f"{time.perf_counter()-t0:.6f}s"
+        )
     
     return means
 
@@ -441,8 +479,9 @@ def process_origin_longitude(
     geom_chunk,
     active_indices,
     distances,
-        dtype=np.float64,
-        weights=None
+    dtype=np.float64,
+    weights=None,
+    profile=False
 ) -> xr.DataArray:
     """
     Compute azimuthally averaged delta-u^3 for a single
@@ -491,21 +530,23 @@ def process_origin_longitude(
         latitude=geom_chunk.origin_latitude,
         longitude=olon,
         method="nearest"
-    )#.isel(longitude=i_olon)
+    )
     v0 = v.sel(
         latitude=geom_chunk.origin_latitude,
         longitude=olon,
         method="nearest"
-    )#.isel(longitude=i_olon)
+    )
                 
     # roll wind fields (need to check if actually faster than rolling geometry)
-    t0 = time.perf_counter()
+    if profile:
+        t0 = time.perf_counter()
     u_roll = u.roll(longitude=-lon_shift, roll_coords=False).load()
     v_roll = v.roll(longitude=-lon_shift, roll_coords=False).load()
-    print(
-        f"Roll: "
-        f"{time.perf_counter()-t0:.6f}s"
-    )
+    if profile:
+        logger.debug(
+            f"Roll: "
+            f"{time.perf_counter()-t0:.6f}s"
+        )
     
     if active_indices is None:
         # compute over the full sphere
@@ -565,7 +606,28 @@ if __name__ == "__main__":
     save_dtype = DTYPES[args.save_dtype]
     calc_dtype = DTYPES[args.calc_dtype]
     force = args.force
+    setup_logging(args.log_level)
+    logger = logging.getLogger(__name__)
     date = "20160801"
+
+    logger.info(
+        "\n\n"
+        "################################################################################\n"
+        f"### LoSSETT version: {LOSSETT_VN} #######################################################\n"
+
+        "### Function: compute_du_cubed_ang_av_spherical ################################\n"    
+        "################################################################################\n"
+        "\n### CALCULATION INFO.\n"
+        f"max_R = {(max_R if max_R is not None else RADIUS_EARTH * np.pi)/1e3:.6g} km\n"
+        f"grid = {grid}\n" # to be deprecated -- user should just supply a uvw file
+        f"source_file = TO_BE_IMPLEMENTED\n"
+        f"geometry archive directory = {geom_path}\n"
+        f"output directory = {save_path}\n"
+        f"origin_latitude chunksize = {chunk_origin}\n"
+        f"dtype (calculation) = {calc_dtype}\n"
+        f"dtype (output) = {save_dtype}\n"
+        f"force = {force}\n"
+    )
 
     # construct regular lat-lon grid
     lon_step, lat_step = GRID_DEFS[grid]
@@ -621,7 +683,7 @@ if __name__ == "__main__":
         for olat_chunk in origin_lat_chunk_bounds:
             lat_start = ds_geom.origin_latitude.isel(origin_latitude=olat_chunk[0]).values
             lat_end = ds_geom.origin_latitude.isel(origin_latitude=olat_chunk[1]-1).values
-            print(f"\n\nOrigin  latitudes {lat_start} -- {lat_end}")
+            logger.info(f"\n\nOrigin  latitudes {lat_start} -- {lat_end}")
             geom_chunk, active_indices = load_geometry_chunk(
                 ds_geom, olat_chunk, distance_edges, max_R=max_R
             )
@@ -629,7 +691,7 @@ if __name__ == "__main__":
             du_cubed_ang_av =[]
             #for i_olon, olon in enumerate(origin_lons):
             for olon in origin_lons:
-                print(f"\nOrigin longitude = {olon}")
+                logger.debug(f"\nOrigin longitude = {olon}")
                 du_cubed_ang_av.append(
                     process_origin_longitude(
                         olon,
@@ -665,7 +727,8 @@ if __name__ == "__main__":
                     "delta_u_cubed_angular_average": (da.dims, da.data)
                 }
             ).reset_coords(drop=True)
-            print("\nSaving chunk")
+            
+            logger.info("\nSaving chunk")
             ds_write.to_zarr(
                 du3_fpath,
                 region = {
@@ -674,4 +737,4 @@ if __name__ == "__main__":
             )
         #endfor
 
-    print("\n\n\nEND.")
+    logger.info("\n\nEND.")
