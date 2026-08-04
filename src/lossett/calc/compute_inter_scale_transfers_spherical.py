@@ -18,9 +18,7 @@ from lossett.calc.field_increments import (
     compute_du3_angular_integral_global,
     compute_du3_angular_integral_subset,
 )
-from lossett.profiling import (
-    profile_block
-)
+from lossett.profiling import profile_block
 
 # Module-scope variables
 LOSSETT_VN = version("lossett")
@@ -486,7 +484,10 @@ if __name__ == "__main__":
     )
 
     # load velocity field
-    u, v, u_fpath = load_velocity_field(date=date, interp_lons=lons, interp_lats=lats, return_fpath=True)
+    u, v, u_fpath = load_velocity_field(
+        date=date, interp_lons=lons,
+        interp_lats=lats, return_fpath=True
+    )
 
     # create Zarr store for azimuthally-integrated delta u cubed
     if max_R is None:
@@ -496,7 +497,8 @@ if __name__ == "__main__":
     #endif
     du3_fpath = os.path.join(
         save_path,
-        f"glm.n1280_GAL9_DS_{date}T00_inter_scale_transfer_of_kinetic_energy_p0200hPa_{grid}{maxR_str}.zarr"
+        f"glm.n1280_GAL9_DS_{date}T00_inter_scale_transfer_of_kinetic_energy_"
+        f"p0200hPa_{grid}{maxR_str}.zarr"
     )
     chunk_dist = -1
     chunk_time = 1
@@ -515,7 +517,8 @@ if __name__ == "__main__":
                 "lossett_version": LOSSETT_VN,
                 "run_command": " ".join(sys.argv),
                 "arguments": repr(vars(args)),
-                "history": f"{datetime.now(UTC).isoformat()}: Created by compute_inter_scale_transfers_spherical.py"
+                "history": f"{datetime.now(UTC).isoformat()}: "
+                "Created by compute_inter_scale_transfers_spherical.py"
             }
         )
         du3_template.to_zarr(
@@ -526,8 +529,18 @@ if __name__ == "__main__":
         )
 
         for olat_chunk in origin_lat_chunk_bounds:
-            lat_start = ds_geom.origin_latitude.isel(origin_latitude=olat_chunk[0]).values
-            lat_end = ds_geom.origin_latitude.isel(origin_latitude=olat_chunk[1]-1).values
+            lat_start = (
+                ds_geom
+                .origin_latitude
+                .isel(origin_latitude=olat_chunk[0])
+                .values
+            )
+            lat_end = (
+                ds_geom
+                .origin_latitude
+                .isel(origin_latitude=olat_chunk[1]-1)
+                .values
+            )
             logger.info(f"\n\nOrigin  latitudes {lat_start} -- {lat_end}")
             geom_chunk, active_indices = load_geometry_chunk(
                 ds_geom, olat_chunk, distance_edges, max_R=max_R
@@ -546,7 +559,6 @@ if __name__ == "__main__":
                         distances,
                         dtype=calc_dtype,
                         use_angular_weights=use_angular_weights,
-                        profile=profile,
                     )
                 )                
             #endfor

@@ -50,6 +50,8 @@ def select_active_points(
     geom_chunk,
     use_angular_weights=False
 ):
+    # TO DO: introduce a dataclass and return just sel = dataclass
+    # (should be more robust)
     
     u_sel = u.values[ilat, ilon]
     v_sel = v.values[ilat, ilon]
@@ -99,7 +101,6 @@ def compute_du3_angular_integral_global(
         geom_chunk,
         nbins,
         dtype=np.float64,
-        profile=False,
         use_angular_weights=False,
 ):
     """
@@ -132,23 +133,14 @@ def compute_du3_angular_integral_global(
     chunk_len = geom_chunk.sizes["origin_latitude"]
                 
     # compute du_cubed
-    if profile:
-        t0 = time.perf_counter()
     du_cubed = compute_delta_u_cubed(
         u, v, u0, v0,
         geom_chunk.sine_initial_bearing, geom_chunk.cosine_initial_bearing,
         geom_chunk.sine_final_bearing, geom_chunk.cosine_final_bearing,
         w=None
     ).load()
-    if profile:
-        logger.debug(
-            f"du_cubed: "
-            f"{time.perf_counter()-t0:.6f}s"
-        )
     
     # compute angular integral (this should be a function)
-    if profile:
-        t0 = time.perf_counter()
     integrals = np.empty((chunk_len, nbins), dtype=dtype)
     for i in range(chunk_len):
         du3 = du_cubed.isel(origin_latitude=i).values.ravel()
@@ -162,12 +154,6 @@ def compute_du3_angular_integral_global(
             bins,
             nbins,
             weights=weights,
-        )
-    #endfor
-    if profile:
-        logger.debug(
-            f"angular integral (np.bincount): "
-            f"{time.perf_counter()-t0:.6f}s"
         )
         
     # clean up
@@ -184,7 +170,6 @@ def compute_du3_angular_integral_subset(
         active_indices,
         nbins,
         dtype=np.float64,
-        profile=False,
         use_angular_weights=False
 ):
     """
@@ -215,9 +200,6 @@ def compute_du3_angular_integral_subset(
     integrals
         (origin_latitude, nbins)
     """
-
-    if profile:
-        t0 = time.perf_counter()
     
     nchunk = len(active_indices)
 
@@ -255,14 +237,7 @@ def compute_du3_angular_integral_subset(
             nbins,
             weights=weights_sel,
         )
-
-    #endfor
-    if profile:
-        logger.debug(
-            f"du_cubed AND angular integral: "
-            f"{time.perf_counter()-t0:.6f}s"
-        )
-    
+        
     return integrals
 
 
