@@ -7,6 +7,10 @@ import time
 import argparse
 from numcodecs import Blosc
 
+from lossett.calc.angular_integration import(
+    voronoi_widths_periodic
+)
+
 RADIUS_EARTH = 6371000 # Earth radius in metres
 GEOM_DIMS = ("origin_latitude","latitude","longitude")
 GRID_DEFS = {
@@ -261,6 +265,132 @@ def iter_chunks(n, chunk_size):
         stop = min(start + chunk_size, n)
         yield start, stop
 
+def compute_great_circle_distance(
+    lat0,
+    lat,
+    cos_lat0,
+    cos_lat,
+    dlon,
+    radius=RADIUS_EARTH,
+):
+    # TO DO: rewrite so that the formula only uses sin(lat), sin(lat0)
+    # sin(dlon), cos(dlon) & take these as input instead of lat0, lat, dlon
+    #  since they're already computed in compute_geometry
+    a = (
+        np.sin((lat - lat0) / 2.0) ** 2
+        + cos_lat0
+        * cos_lat
+        * np.sin(dlon / 2.0) ** 2
+    )
+
+    # clip to avoid division error
+    a = a.clip(min=0.0, max=1.0)
+
+    c = 2.0 * np.arctan2(
+        np.sqrt(a),
+        np.sqrt(1.0 - a),
+    )
+    assert np.isfinite(c).all()
+    
+    return radius * c
+
+def compute_distance_bins(distance, distance_edges):
+    return (
+        np.digitize(distance, distance_edges) - 1
+    )
+
+def compute_initial_bearing_trig(
+    sin_dlon, cos_dlon,
+    sin_lat0, cos_lat0,
+    sin_lat, cos_lat
+):
+
+    # this bit could be raw numpy
+    yi = sin_dlon * cos_lat
+    xi = (
+        cos_lat0 * sin_lat
+        - sin_lat0 * cos_lat * cos_dlon
+    )
+    norm = np.sqrt(xi*xi + yi*yi)
+    # remove unsafe values
+    norm = xr.where(norm > 0, norm, np.nan)
+    
+    # sine(initial_bearing)
+    sin_init = yi / norm
+        
+    # cosine(initial_bearing)
+    cos_init = xi / norm
+
+    # cleaning up
+    del xi
+    del yi
+    del norm
+    
+    return sin_init, cos_init
+
+def compute_final_bearing_trig(
+    sin_dlon, cos_dlon,
+    sin_lat0, cos_lat0,
+    sin_lat, cos_lat
+):
+    yf = - sin_dlon * cos_lat0
+    xf = (
+        cos_lat * sin_lat0
+        - sin_lat * cos_lat0 * cos_dlon
+    )
+    norm = np.sqrt(xf*xf + yf*yf)
+    # remove unsafe values
+    norm = xr.where(norm > 0, norm, np.nan)
+
+    # sine(final_bearing)
+    sin_final = -yf / norm
+        
+    # cosine(initial_bearing)
+    cos_final = -xf / norm
+
+    # cleaning up
+    del xf
+    del yf
+    del norm
+
+    return sin_final, cos_final
+
+def compute_initial_bearing(
+    sin_dlon, cos_dlon,
+    sin_lat0, cos_lat0,
+    sin_lat, cos_lat
+):
+    yi = sin_dlon * cos_lat
+    xi = (
+        cos_lat0 * sin_lat
+        - sin_lat0 * cos_lat * cos_dlon
+    )
+    initial_bearing = np.arctan2(yi, xi)
+
+    # cleaning up
+    del xi
+    del yi
+    
+    return initial_bearing
+
+def compute_final_bearing(
+    sin_dlon, cos_dlon,
+    sin_lat0, cos_lat0,
+    sin_lat, cos_lat
+):
+    yf = - sin_dlon * cos_lat0
+    xf = (
+        cos_lat * sin_lat0
+        - sin_lat * cos_lat0 * cos_dlon
+    )
+    final_bearing = np.arctan2(-yf, -xf)
+
+    # cleaning up
+    del xf
+    del yf
+    
+    return final_bearing
+
 def compute_angular_weights(
     distance_bin,
     sin_chi,
@@ -386,15 +516,7 @@ def compute_angular_weights(
         #
         # Voronoi cell width in χ
         #
-        dchi = np.diff(
-            np.concatenate(
-                [chi_sorted, [chi_sorted[0] + 2*np.pi]]
-            )
-        )
-        weights_sorted = 0.5 * (
-            dchi
-            + np.roll(dchi, 1)
-        )
+        weights_sorted = voronoi_widths_periodic(chi_sorted)
 
         #
         # restore original ordering
@@ -511,75 +633,39 @@ def compute_geometry(
     sin_dlon = np.sin(dlon)
     cos_dlon = np.cos(dlon)
 
-    #
-    # Haversine distance
-    #
-    a = (
-        np.sin((lat - lat0) / 2.0) ** 2
-        + cos_lat0
-        * cos_lat
-        * np.sin(dlon / 2.0) ** 2
-    )
-
-    # clip to avoid division error
-    a = a.clip(min=0.0, max=1.0)
-
-    c = 2.0 * np.arctan2(
-        np.sqrt(a),
-        np.sqrt(1.0 - a),
-    )
-    assert np.isfinite(c).all()
-
-    distance = (radius * c).astype(dtype)
+    # Great circle distance
+    distance = compute_great_circle_distance(
+        lat0,
+        lat,
+        cos_lat0,
+        cos_lat,
+        dlon,
+    ).astype(dtype)
     distance = distance.transpose(*dim_order)
     distance.name = "great_circle_distance"
 
-    #
-    # Distance bin
-    #
+    # Great circle distance bin
+    distance_bin = compute_distance_bins(distance, distance_edges)
     distance_bin = xr.DataArray(
-        (
-            np.digitize(distance, distance_edges) - 1
-        ).astype(bin_dtype),
+        distance_bin.astype(bin_dtype),
         dims = distance.dims,
         coords = distance.coords,
         name = "great_circle_distance_bin"
     )
 
     if trig_fns:
-        #
-        # Initial bearing
-        #
-        yi = sin_dlon * cos_lat
-        xi = (
-            cos_lat0 * sin_lat
-            - sin_lat0 * cos_lat * cos_dlon
-        )
-        norm = np.sqrt(xi*xi + yi*yi)
-        # sine(initial_bearing)
-        sin_init = xr.where(
-            norm > 0,
-            yi / norm,
-            np.nan,
+        # Sine, cosine initial bearing
+        sin_init, cos_init = compute_initial_bearing_trig(
+            sin_dlon, cos_dlon,
+            sin_lat0, cos_lat0,
+            sin_lat, cos_lat
         )
         sin_init = sin_init.transpose(*dim_order)
         sin_init.name = "sine_initial_bearing"
-        
-        # cosine(initial_bearing)
-        cos_init = xr.where(
-            norm > 0,
-            xi / norm,
-            np.nan,
-        )
         cos_init = cos_init.transpose(*dim_order)
         cos_init.name = "cosine_initial_bearing"
 
-        del xi
-        del yi
-
-        #
         # Angular weights
-        #
         angular_weight = xr.zeros_like(
             distance,
             dtype=dtype
@@ -594,71 +680,46 @@ def compute_geometry(
                     dtype=dtype
                 )
             )
-        angular_weight.name = "angular_weight"
         angular_weight = angular_weight.transpose(*dim_order)
+        angular_weight.name = "angular_weight"
         
-        #
-        # Final bearing
-        #
-        yf = - sin_dlon * cos_lat0
-        xf = (
-            cos_lat * sin_lat0
-            - sin_lat * cos_lat0 * cos_dlon
-        )
-        norm = np.sqrt(xf*xf + yf*yf)
-        # sine(final_bearing)
-        sin_final = xr.where(
-        norm > 0,
-        -yf / norm,
-        np.nan,
+        # Sine, cosine final bearing
+        sin_final, cos_final = compute_final_bearing_trig(
+            sin_dlon, cos_dlon,
+            sin_lat0, cos_lat0,
+            sin_lat, cos_lat
         )
         sin_final = sin_final.transpose(*dim_order)
         sin_final.name = "sine_final_bearing"
-        
-        # cosine(final_bearing)
-        cos_final = xr.where(
-            norm > 0,
-            -xf / norm,
-            np.nan,
-        )
         cos_final = cos_final.transpose(*dim_order)
         cos_final.name = "cosine_final_bearing"
 
-        del xf
-        del yf
-
-        ds_geom = xr.merge([distance, distance_bin, sin_init, cos_init, sin_final, cos_final, angular_weight])
+        ds_geom = xr.merge([
+            distance, distance_bin, sin_init, cos_init,
+            sin_final, cos_final, angular_weight
+        ])
     else:
         #
         # Initial bearing
         #
-        yi = sin_dlon * cos_lat
-        xi = (
-            cos_lat0 * sin_lat
-            - sin_lat0 * cos_lat * cos_dlon
-        )
-        initial_bearing = np.arctan2(yi, xi).astype(dtype)
+        initial_bearing = compute_initial_bearing(
+            sin_dlon, cos_dlon,
+            sin_lat0, cos_lat0,
+            sin_lat, cos_lat
+        ).astype(dtype)
         initial_bearing = initial_bearing.transpose(*dim_order)
         initial_bearing.name = "initial_bearing"
-
-        del xi
-        del yi
         
         #
         # Final bearing
         #
-        yf = - sin_dlon * cos_lat0
-        xf = (
-            cos_lat * sin_lat0
-            - sin_lat * cos_lat0 * cos_dlon
-        )
-
-        final_bearing = np.arctan2(-yf, -xf).astype(dtype)
-        fin_bearing = final_bearing.transpose(*dim_order)
+        final_bearing = compute_final_bearing(
+            sin_dlon, cos_dlon,
+            sin_lat0, cos_lat0,
+            sin_lat, cos_lat
+        ).astype(dtype)
+        final_bearing = final_bearing.transpose(*dim_order)
         final_bearing.name = "final_bearing"
-
-        del xf
-        del yf
         
         ds_geom = xr.merge([distance, distance_bin, initial_bearing, final_bearing])
 

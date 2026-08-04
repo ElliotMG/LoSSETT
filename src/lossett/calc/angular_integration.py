@@ -3,35 +3,20 @@ import numpy as np
 def voronoi_widths_periodic(chi):
     """
     Compute Voronoi cells widths given angular cell centres chi.
+    Assumes chi is sorted and unique.
     Correct handling of periodicity.
     """
-    n = len(chi)
 
-    widths = np.empty(n)
+    dchi = np.diff(
+        np.concatenate(
+            [chi, [chi[0] + 2*np.pi]]
+        )
+    )
 
-    for i in range(n):
-
-        if i == 0:
-            left_mid = 0.5 * (
-                chi[-1] + chi[0] - 2*np.pi
-            )
-        else:
-            left_mid = 0.5 * (
-                chi[i-1] + chi[i]
-            )
-
-        if i == n-1:
-            right_mid = 0.5 * (
-                chi[i] + chi[0] + 2*np.pi
-            )
-        else:
-            right_mid = 0.5 * (
-                chi[i] + chi[i+1]
-            )
-
-        widths[i] = right_mid - left_mid
-
-    return widths
+    return 0.5 * (
+        dchi
+        + np.roll(dchi, 1)
+    )
 
 def bin_integrate(values, bins, nbins, weights=None):
     if weights is None:
