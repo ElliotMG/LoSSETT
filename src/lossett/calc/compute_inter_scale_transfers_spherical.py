@@ -10,7 +10,17 @@ import argparse
 import logging
 from importlib.metadata import version
 
-from lossett.calc.compute_spherical_geometry import build_geometry_filename, build_regular_latlon_grid, GRID_DEFS, RADIUS_EARTH, DTYPES
+from lossett.calc.compute_spherical_geometry import (
+    build_geometry_filename, build_regular_latlon_grid,
+    GRID_DEFS, RADIUS_EARTH, DTYPES
+)
+from lossett.calc.field_increments import (
+    compute_du3_angular_integral_global,
+    compute_du3_angular_integral_subset,
+)
+from lossett.profiling import (
+    profile_block
+)
 
 # Module-scope variables
 LOSSETT_VN = version("lossett")
@@ -256,16 +266,26 @@ def prepare_distance_selection(
         len(distance_edges) - 2
     )
 
-    active_indices = []
-
-    for i in range(distance_bin.shape[0]):
-        active_indices.append(
-            np.where(
-                distance_bin[i] <= max_bin
+    if max_bin < 0:
+        # edge case handling
+        return [
+            (
+                np.array([], dtype=int),
+                np.array([], dtype=int),
             )
-        )
+            for _ in range(distance_bin.shape[0])
+        ]
+    else:
+        active_indices = []
 
-    return active_indices
+        for i in range(distance_bin.shape[0]):
+            active_indices.append(
+                np.where(
+                    distance_bin[i] <= max_bin
+                )
+            )
+
+        return active_indices
 
 def load_geometry_chunk(ds_geom, olat_chunk, distance_edges, max_R=None, profile=False):
     
@@ -293,358 +313,6 @@ def load_geometry_chunk(ds_geom, olat_chunk, distance_edges, max_R=None, profile
             f"{time.perf_counter()-t0:.6f}s"
         )
     return geom_chunk, active_indices
-
-def compute_delta_u_cubed(u, v, u0, v0, sin_init, cos_init, sin_final, cos_final, w=None):
-    # velocity increment tangent to geodesic
-    du_t = (
-        u*sin_final
-        + v*cos_final
-        - u0*sin_init
-        - v0*cos_init
-    )
-    # velocity increment normal to geodesic
-    du_n = (
-        u*cos_final
-        -v*sin_final
-        -u0*cos_init
-        +v0*sin_init
-    )
-    # compute delta u cubed dot rhat
-    du_cubed = du_t * (du_t*du_t + du_n*du_n)
-
-    del du_t
-    del du_n
-
-    ### TO DO: ADD VERTICAL VELOCITY CAPABILITY
-    
-    return du_cubed
-
-def bin_integrate(values, bins, nbins, weights=None):
-    if weights is None:
-        sum_bin = np.bincount(
-            bins,
-            weights=values,
-            minlength=nbins,
-        )
-        
-    else:    
-        sum_bin = np.bincount(
-            bins,
-            weights=values*weights,
-            minlength=nbins,
-        )
-    
-    if len(sum_bin) > nbins:
-        raise ValueError(
-            "Found distance-bin overflow."
-        )
-
-    return sum_bin
-
-def angular_integral_by_distance_bin(
-    integrand,
-    bins,
-    nbins,
-    weights=None,
-):
-    """
-    Compute angular integral for a single origin latitude.
-
-    Parameters
-    ----------
-    integrand : ndarray
-        Integrand values.
-
-    bins : ndarray
-        Distance-bin indices corresponding to integrand. Includes both
-        valid and invalid points.
-
-    nbins : int
-        Number of distance bins.
-
-    weights : ndarray or None
-        Angular quadrature weights.
-        If None, use uniform weighting.
-
-    Returns
-    -------
-    integral : ndarray
-        Angular integral as a function of distance.
-    """
-
-    valid = np.isfinite(integrand)
-
-    integrand = integrand[valid]
-    bins_valid = bins[valid]
-
-    if weights is not None:
-
-        weights = weights[valid]
-
-        return bin_integrate(
-            integrand,
-            bins_valid,
-            nbins,
-            weights=weights,
-        )
-
-    else:
-        n_total = np.bincount(
-            bins,
-            minlength=nbins,
-        )
-
-        return np.divide(
-            2*np.pi * bin_integrate(
-                integrand,
-                bins_valid,
-                nbins,
-            ),
-            n_total,
-            out=np.full(nbins, np.nan),
-            where=n_total > 0,
-        )
-
-def compute_du3_angular_integral_global(
-        u,
-        v,
-        u0,
-        v0,
-        geom_chunk,
-        nbins,
-        dtype=np.float32,
-        profile=False,
-        use_angular_weights=False,
-):
-    """
-    Inputs
-    ----------
-    u, v
-        Rolled wind fields
-        (latitude, longitude)
-
-    u0, v0
-        Origin winds
-        (origin_latitude,)
-
-    geom_chunk
-        Geometry chunk containing:
-            distance_bin
-            sin_init
-            cos_init
-            sin_final
-            cos_final
-
-    nbins
-        Number of bins
-
-    Returns
-    -------
-    integrals
-        (origin_latitude, nbins)
-    """
-    chunk_len = geom_chunk.sizes["origin_latitude"]
-                
-    # compute du_cubed
-    if profile:
-        t0 = time.perf_counter()
-    du_cubed = compute_delta_u_cubed(
-        u, v, u0, v0,
-        geom_chunk.sine_initial_bearing, geom_chunk.cosine_initial_bearing,
-        geom_chunk.sine_final_bearing, geom_chunk.cosine_final_bearing,
-        w=None
-    ).load()
-    if profile:
-        logger.debug(
-            f"du_cubed: "
-            f"{time.perf_counter()-t0:.6f}s"
-        )
-    
-    # compute angular integral (this should be a function)
-    if profile:
-        t0 = time.perf_counter()
-    integrals = np.empty((chunk_len, nbins), dtype=dtype)
-    for i in range(chunk_len):
-        du3 = du_cubed.isel(origin_latitude=i).values.ravel()
-        bins = geom_chunk.great_circle_distance_bin.isel(origin_latitude=i).values.ravel()
-        if use_angular_weights:
-            weights = geom_chunk.angular_weight.isel(origin_latitude=i).values.ravel()
-        else:
-            weights = None
-        integrals[i] = angular_integral_by_distance_bin(
-            du3,
-            bins,
-            nbins,
-            weights=weights,
-        )
-        """
-        # Exclude NaNs from angular integral
-        valid = np.isfinite(du3)
-        du3 = du3[valid]
-        bins = bins_all[valid]
-        if use_angular_weights:
-            weights = geom_chunk.angular_weight.isel(origin_latitude=i).values.ravel()
-            weights = weights[valid]
-            integrals[i] = bin_integrate(du3, bins, nbins, weights=weights)
-        else:
-            n_total = np.bincount(
-                bins_all,
-                minlength=nbins,
-            )
-            integrals[i] = np.divide(
-                2*np.pi * bin_integrate(du3, bins, nbins),
-                n_total,
-                out=np.full(nbins, np.nan),
-                where=n_total > 0.,
-            )
-        """
-    #endfor
-    if profile:
-        logger.debug(
-            f"angular integral (np.bincount): "
-            f"{time.perf_counter()-t0:.6f}s"
-        )
-        
-    # clean up
-    del du_cubed
-            
-    return integrals
-
-def compute_du3_angular_integral_subset(
-        u,
-        v,
-        u0,
-        v0,
-        geom_chunk,
-        active_indices,
-        nbins,
-        dtype=np.float64,
-        profile=False,
-        use_angular_weights=False
-):
-    """
-    Inputs
-    ----------
-    u, v
-        Rolled wind fields
-        (latitude, longitude)
-
-    u0, v0
-        Origin winds
-        (origin_latitude,)
-
-    geom_chunk
-        Geometry chunk containing:
-            distance_bin
-            sin_init
-            cos_init
-            sin_final
-            cos_final
-
-    active_indices
-        List of (ilat, ilon) tuples,
-        one per origin latitude.
-
-    Returns
-    -------
-    integrals
-        (origin_latitude, nbins)
-    """
-
-    if profile:
-        t0 = time.perf_counter()
-    
-    nchunk = len(active_indices)
-
-    integrals = np.empty(
-        (nchunk, nbins),
-        dtype=dtype,
-    )
-
-    for i, (ilat, ilon) in enumerate(active_indices):
-
-        # gather only active points
-        u_sel = u.values[ilat, ilon]
-        v_sel = v.values[ilat, ilon]
-
-        u0_sel = u0.values[i]
-        v0_sel = v0.values[i]
-
-        sin_init_sel = geom_chunk.sine_initial_bearing.values[
-            i, ilat, ilon
-        ]
-        cos_init_sel = geom_chunk.cosine_initial_bearing.values[
-            i, ilat, ilon
-        ]
-
-        sin_final_sel = geom_chunk.sine_final_bearing.values[
-            i, ilat, ilon
-        ]
-        cos_final_sel = geom_chunk.cosine_final_bearing.values[
-            i, ilat, ilon
-        ]
-
-        bins_sel = geom_chunk.great_circle_distance_bin.values[
-            i, ilat, ilon
-        ]
-
-        # compute du^3
-        du3 = compute_delta_u_cubed(
-            u_sel, v_sel,
-            u0_sel, v0_sel,
-            sin_init_sel, cos_init_sel,
-            sin_final_sel, cos_final_sel,
-            w=None
-        )
-
-        if use_angular_weights:
-            weights = geom_chunk.angular_weight.values[
-                i,
-                ilat,
-                ilon,
-            ]
-        else:
-            weights = None
-
-        # compute angular integral
-        integrals[i] = angular_integral_by_distance_bin(
-            du3,
-            bins_sel,
-            nbins,
-            weights=weights,
-        )
-
-        """
-        # accumulate by bin
-        if use_angular_weights:
-            weights = geom_chunk.angular_weight.values[
-                i,
-                ilat,
-                ilon,
-            ]
-            weights = weights[valid]
-            integrals[i] = bin_integrate(du3, bins, nbins, weights=weights)
-        else:
-            n_total = np.bincount(
-                bins_all,
-                minlength=nbins,
-            )
-            integrals[i] = np.divide(
-                2*np.pi * bin_integrate(du3, bins, nbins),
-                n_total,
-                out=np.full(nbins, np.nan),
-                where=n_total > 0.,
-            )
-        """
-
-    #endfor
-    if profile:
-        logger.debug(
-            f"du_cubed AND angular integral: "
-            f"{time.perf_counter()-t0:.6f}s"
-        )
-    
-    return integrals
 
 def process_origin_longitude(
     olon,
