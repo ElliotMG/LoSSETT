@@ -7,17 +7,14 @@ import time
 import argparse
 from numcodecs import Blosc
 
-from lossett.calc.angular_integration import(
-    voronoi_widths_periodic
-)
 from lossett.calc.spherical_geometry import (
     build_regular_latlon_grid,
     build_distance_bins,
     compute_geometry,
-    RADIUS_EARTH
+    RADIUS_EARTH,
+    GEOM_DIMS
 )
 
-GEOM_DIMS = ("origin_latitude","latitude","longitude")
 GRID_DEFS = {
     "5p0deg": (5.0, 5.0),
     "2p5deg": (2.5, 2.5),
@@ -117,10 +114,29 @@ def make_geom_var(shape,dtype,chunks):
         ),
     )
 
+def copy_dataset_attrs(source, target):
+    # Dataset-level attributes
+    target.attrs.update(source.attrs)
+
+    # Variable-level attributes
+    for var in target.data_vars:
+        if var in source:
+            target[var].attrs.update(
+                source[var].attrs
+            )
+
 def create_geometry_template(
-        origin_latitudes, target_latitudes, delta_longitudes,
-        chunk_origin, chunk_lat, chunk_lon,
-        dtype=np.float32, bin_dtype=np.uint8, trig_fns=False
+        origin_latitudes,
+        target_latitudes,
+        delta_longitudes,
+        chunk_origin,
+        chunk_lat,
+        chunk_lon,
+        distance_edges,
+        radius=RADIUS_EARTH,
+        dtype=np.float32,
+        bin_dtype=np.uint8,
+        trig_fns=False
 ):
     shape = (
         len(origin_latitudes),
@@ -178,10 +194,28 @@ def create_geometry_template(
             make_geom_var(shape, dtype, chunks),
         })
 
-    return xr.Dataset(
+    template = xr.Dataset(
         variables,
         coords=coords,
     )
+
+    # Copy metadata from a minimal geometry dataset.
+    metadata_ds = compute_geometry(
+        origin_latitudes[:1],
+        target_latitudes[:1],
+        delta_longitudes[:1],
+        distance_edges,
+        dtype=dtype,
+        bin_dtype=bin_dtype,
+        trig_fns=trig_fns,
+    )
+
+    copy_dataset_attrs(
+        metadata_ds, # source
+        template     # target
+    )
+
+    return template
 
 def build_encoding(trig_fns):
     geom_vars = (
@@ -211,6 +245,7 @@ def initialize_geometry_store(
     bin_dtype,
     trig_fns,
     distance_edges,
+    radius=RADIUS_EARTH
 ):
     """
     Create an empty geometry Zarr store ready for
@@ -224,18 +259,11 @@ def initialize_geometry_store(
         chunk_origin,
         chunk_lat,
         chunk_lon,
+        distance_edges,
         dtype=dtype,
         bin_dtype=bin_dtype,
         trig_fns=trig_fns,
-    )
-
-    template.attrs.update(
-        {
-            "earth_radius_m": RADIUS_EARTH,
-            "distance_bin_edges_m": distance_edges.tolist(),
-            "distance_bin_max_m": float(distance_edges[-1]),
-            "n_distance_bins": len(distance_edges) - 1,
-        }
+        radius=radius
     )
 
     encoding = build_encoding(trig_fns)
@@ -355,8 +383,8 @@ if __name__ == "__main__":
         compute_kwargs = {
             "dtype": dtype,
             "bin_dtype": bin_dtype,
-            "origin_lat_chunksize": chunk_origin,
             "trig_fns": save_trig_fns,
+            "radius": RADIUS_EARTH
         }
 
         initialize_geometry_store(
@@ -371,6 +399,7 @@ if __name__ == "__main__":
             bin_dtype,
             save_trig_fns,
             distance_edges,
+            radius=RADIUS_EARTH
         )
         
         for i0, i1 in iter_chunks(len(origin_lats), chunk_origin,):

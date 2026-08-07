@@ -91,7 +91,63 @@ def bearing_trig(lat0_deg, lat_deg, dlon_deg):
 
 # Tests
 
+### TOP-LEVEL: SHAPES
+
+def test_compute_geometry_shapes():
+
+    lats = np.array([
+        -60.,
+        -30.,
+        0.,
+        30.,
+        60.,
+    ])
+
+    lons = np.arange(
+        -180.,
+        180.,
+        30.,
+    )
+
+    distance_edges = np.linspace(
+        0.,
+        np.pi * RADIUS_EARTH,
+        16,
+    )
+
+    ds = compute_geometry(
+        lats,
+        lats,
+        lons,
+        distance_edges,
+        trig_fns=True,
+    )
+
+    expected_shape = (
+        len(lats),
+        len(lats),
+        len(lons),
+    )
+
+    for var in ds.data_vars:
+        assert ds[var].shape == expected_shape
+
+### ANGULAR WEIGHTS
+
+def test_geometry_weights_valid():
+
+    ds, _ = make_test_geometry()
+
+    weights = ds.angular_weight.values
+
+    assert np.all(np.isfinite(weights))
+    assert np.all(weights >= 0.0)
+
 def test_geometry_weight_conservation():
+    """
+    Note that this is the same as ensuring that integrating a constant gives
+    2 * pi times that constant.
+    """
 
     ds, distance_edges = make_test_geometry()
 
@@ -156,71 +212,6 @@ def test_geometry_weight_conservation():
                     atol=1e-4,
                 )
 
-def test_geometry_weights_finite():
-
-    ds, _ = make_test_geometry()
-
-    weights = ds.angular_weight.values
-
-    assert np.all(
-        np.isfinite(weights)
-    )
-
-def test_geometry_weights_nonnegative():
-
-    ds, _ = make_test_geometry()
-
-    weights = ds.angular_weight.values
-
-    assert np.all(weights >= 0.)
-
-def test_geometry_constant_integral():
-
-    ds, distance_edges = make_test_geometry()
-
-    nbins = len(distance_edges) - 1
-
-    for ilat0 in range(
-        ds.sizes["origin_latitude"]
-    ):
-
-        bins = (
-            ds.great_circle_distance_bin
-            .isel(origin_latitude=ilat0)
-            .values
-        )
-
-        weights = (
-            ds.angular_weight
-            .isel(origin_latitude=ilat0)
-            .values
-        )
-
-        valid = np.isfinite(
-            ds.sine_initial_bearing
-            .isel(origin_latitude=ilat0)
-            .values
-        )
-
-        for ibin in range(nbins):
-
-            mask = (
-                (bins == ibin)
-                & valid
-            )
-
-            if np.any(mask):
-
-                integral = np.sum(
-                    weights[mask]
-                )
-
-                assert np.isclose(
-                    integral,
-                    2*np.pi,
-                    atol=1e-4,
-                )
-
 def test_geometry_sine_integral():
 
     ds, distance_edges = make_test_geometry_fine_grid()
@@ -279,57 +270,7 @@ def test_geometry_sine_integral():
 
             assert abs(integral) < 1e-2
 
-def test_zero_distance_bearings_nan():
-
-    ds, _ = make_test_geometry()
-
-    zero_distance = (
-        ds.great_circle_distance.values == 0.0
-    )
-
-    assert np.any(
-        zero_distance
-    )
-
-    assert np.all(
-        np.isnan(
-            ds.sine_initial_bearing.values[
-                zero_distance
-            ]
-        )
-    )
-
-    assert np.all(
-        np.isnan(
-            ds.cosine_initial_bearing.values[
-                zero_distance
-            ]
-        )
-    )
-
-    assert np.all(
-        np.isnan(
-            ds.sine_final_bearing.values[
-                zero_distance
-            ]
-        )
-    )
-
-    assert np.all(
-        np.isnan(
-            ds.cosine_final_bearing.values[
-                zero_distance
-            ]
-        )
-    )
-
-    assert np.all(
-        ds.angular_weight.values[
-            zero_distance
-        ] == 0.0
-    )
-
-# compute_great_circle_distance
+### GREAT CIRCLE DISTANCE
 
 def test_great_circle_distance_zero():
 
@@ -421,7 +362,7 @@ def test_great_circle_distance_symmetric():
         rtol=1e-12,
     )
 
-# compute_distance_bins
+### DISTANCE BINS
 
 def test_distance_bin_assignment():
 
@@ -448,7 +389,61 @@ def test_distance_bin_assignment():
         [0, 1, 2],
     )
 
-# compute_initial_bearing_trig
+### BEARINGS
+
+def test_zero_distance_bearings_nan():
+    """
+    Tests what bearings are assigned to a great-circle distance of 0.
+    This should be np.nan; similarly the associated angular weight should be 0.
+    """
+
+    ds, _ = make_test_geometry()
+
+    zero_distance = (
+        ds.great_circle_distance.values == 0.0
+    )
+
+    assert np.any(
+        zero_distance
+    )
+
+    assert np.all(
+        np.isnan(
+            ds.sine_initial_bearing.values[
+                zero_distance
+            ]
+        )
+    )
+
+    assert np.all(
+        np.isnan(
+            ds.cosine_initial_bearing.values[
+                zero_distance
+            ]
+        )
+    )
+
+    assert np.all(
+        np.isnan(
+            ds.sine_final_bearing.values[
+                zero_distance
+            ]
+        )
+    )
+
+    assert np.all(
+        np.isnan(
+            ds.cosine_final_bearing.values[
+                zero_distance
+            ]
+        )
+    )
+
+    assert np.all(
+        ds.angular_weight.values[
+            zero_distance
+        ] == 0.0
+    )
 
 def test_bearing_due_north():
 
@@ -677,8 +672,6 @@ def test_bearing_reversal_many_points():
             atol=1e-12,
         )
 
-# consistency of compute_initial_bearings and compute_initial_bearings_trig
-
 def test_initial_bearing_matches_trig_functions():
 
     rng = np.random.default_rng(RND_SEED)
@@ -741,8 +734,6 @@ def test_initial_bearing_matches_trig_functions():
             cos_b,
             atol=1e-12,
         )
-    
-# consistency of compute_final_bearings and compute_final_bearings_trig
 
 def test_final_bearing_matches_trig_functions():
 
@@ -806,3 +797,193 @@ def test_final_bearing_matches_trig_functions():
             cos_b,
             atol=1e-12,
         )
+
+### EDGE CASES
+
+def test_coincident_points():
+
+    lat0 = np.deg2rad(30.0)
+    lat = np.deg2rad(30.0)
+    dlon = 0.0
+
+    distance = compute_great_circle_distance(
+        lat0,
+        lat,
+        np.cos(lat0),
+        np.cos(lat),
+        dlon,
+    )
+
+    assert distance == 0.0
+
+    sin_b, cos_b = compute_initial_bearing_trig(
+        np.sin(dlon),
+        np.cos(dlon),
+        np.sin(lat0),
+        np.cos(lat0),
+        np.sin(lat),
+        np.cos(lat),
+    )
+
+    assert np.isnan(sin_b)
+    assert np.isnan(cos_b)
+    
+    sin_b, cos_b = compute_final_bearing_trig(
+        np.sin(dlon),
+        np.cos(dlon),
+        np.sin(lat0),
+        np.cos(lat0),
+        np.sin(lat),
+        np.cos(lat),
+    )
+
+    assert np.isnan(sin_b)
+    assert np.isnan(cos_b)
+
+def test_pole_to_pole_distance():
+
+    lat0 = np.deg2rad(90.0)
+    lat = np.deg2rad(-90.0)
+    dlon = 0.0
+
+    distance = compute_great_circle_distance(
+        lat0,
+        lat,
+        np.cos(lat0),
+        np.cos(lat),
+        dlon,
+    )
+
+    np.testing.assert_allclose(
+        distance,
+        np.pi * RADIUS_EARTH,
+        rtol=1e-12,
+    )
+
+def test_longitude_wraparound_distance():
+
+    lat0 = np.deg2rad(20.0)
+    lat = np.deg2rad(-10.0)
+
+    dist_pos = compute_great_circle_distance(
+        lat0,
+        lat,
+        np.cos(lat0),
+        np.cos(lat),
+        np.deg2rad(180.0),
+    )
+
+    dist_neg = compute_great_circle_distance(
+        lat0,
+        lat,
+        np.cos(lat0),
+        np.cos(lat),
+        np.deg2rad(-180.0),
+    )
+
+    np.testing.assert_allclose(
+        dist_pos,
+        dist_neg,
+        rtol=1e-12,
+    )
+
+def test_initial_bearing_pm180_consistent_trig():
+
+    lat0 = np.deg2rad(20.0)
+    lat = np.deg2rad(-10.0)
+
+    sin_pos, cos_pos = compute_initial_bearing_trig(
+        np.sin(np.deg2rad(180.0)),
+        np.cos(np.deg2rad(180.0)),
+        np.sin(lat0),
+        np.cos(lat0),
+        np.sin(lat),
+        np.cos(lat),
+    )
+
+    sin_neg, cos_neg = compute_initial_bearing_trig(
+        np.sin(np.deg2rad(-180.0)),
+        np.cos(np.deg2rad(-180.0)),
+        np.sin(lat0),
+        np.cos(lat0),
+        np.sin(lat),
+        np.cos(lat),
+    )
+
+    np.testing.assert_allclose(
+        cos_pos,
+        cos_neg,
+        atol=1e-12,
+    )
+
+    np.testing.assert_allclose(
+        sin_pos,
+        sin_neg,
+        atol=1e-12,
+    )
+
+def test_initial_bearing_pm180_consistent():
+
+    lat0 = np.deg2rad(20.0)
+    lat = np.deg2rad(-10.0)
+
+    bearing_pos = compute_initial_bearing(
+        np.sin(np.deg2rad(180.0)),
+        np.cos(np.deg2rad(180.0)),
+        np.sin(lat0),
+        np.cos(lat0),
+        np.sin(lat),
+        np.cos(lat),
+    )
+
+    bearing_neg = compute_initial_bearing(
+        np.sin(np.deg2rad(-180.0)),
+        np.cos(np.deg2rad(-180.0)),
+        np.sin(lat0),
+        np.cos(lat0),
+        np.sin(lat),
+        np.cos(lat),
+    )
+
+    np.testing.assert_allclose(
+        bearing_pos,
+        bearing_neg,
+        atol=1e-12,
+    )
+
+def test_angular_weights_small_bin_uniform():
+
+    distance_bin = np.zeros(
+        (2, 2),
+        dtype=np.int32,
+    )
+
+    chi = np.array([
+        [0.0,        np.pi / 2],
+        [np.pi,      3 * np.pi / 2],
+    ])
+
+    sin_chi = np.sin(chi)
+    cos_chi = np.cos(chi)
+
+    weights = compute_angular_weights(
+        distance_bin,
+        sin_chi,
+        cos_chi,
+        nbins=1,
+    )
+
+    expected = np.full(
+        (2, 2),
+        2 * np.pi / 4,
+    )
+
+    np.testing.assert_allclose(
+        weights,
+        expected,
+    )
+
+    np.testing.assert_allclose(
+        weights.sum(),
+        2 * np.pi,
+    )

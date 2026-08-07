@@ -6,6 +6,7 @@ from lossett.calc.angular_integration import(
 )
 
 RADIUS_EARTH = 6371000 # Earth radius in metres
+GEOM_DIMS = ("origin_latitude","latitude","longitude")
 
 def build_regular_latlon_grid(lon_step, lat_step):
     lons = np.arange(-180., 180., lon_step)
@@ -56,6 +57,13 @@ def compute_great_circle_distance(
     return radius * c
 
 def compute_distance_bins(distance, distance_edges):
+    """
+    Returns zero-based distance-bin indices.
+    Bin i corresponds to
+
+        distance_edges[i] <= r < distance_edges[i+1]
+    """
+
     return (
         np.digitize(distance, distance_edges) - 1
     )
@@ -66,21 +74,28 @@ def compute_initial_bearing_trig(
     sin_lat, cos_lat
 ):
 
-    # this bit could be raw numpy
     yi = sin_dlon * cos_lat
     xi = (
         cos_lat0 * sin_lat
         - sin_lat0 * cos_lat * cos_dlon
     )
     norm = np.sqrt(xi*xi + yi*yi)
-    # remove unsafe values
-    norm = xr.where(norm > 0, norm, np.nan)
     
     # sine(initial_bearing)
-    sin_init = yi / norm
+    sin_init = np.divide(
+        yi,
+        norm,
+        out=np.full_like(norm, np.nan),
+        where=norm > 0,
+    )
         
     # cosine(initial_bearing)
-    cos_init = xi / norm
+    cos_init = np.divide(
+        xi,
+        norm,
+        out=np.full_like(norm, np.nan),
+        where=norm > 0,
+    )
 
     # cleaning up
     del xi
@@ -100,14 +115,22 @@ def compute_final_bearing_trig(
         - sin_lat * cos_lat0 * cos_dlon
     )
     norm = np.sqrt(xf*xf + yf*yf)
-    # remove unsafe values
-    norm = xr.where(norm > 0, norm, np.nan)
-
+    
     # sine(final_bearing)
-    sin_final = -yf / norm
+    sin_final = np.divide(
+        -yf,
+        norm,
+        out=np.full_like(norm, np.nan),
+        where=norm > 0,
+    )
         
-    # cosine(initial_bearing)
-    cos_final = -xf / norm
+    # cosine(final_bearing)
+    cos_final = np.divide(
+        -xf,
+        norm,
+        out=np.full_like(norm, np.nan),
+        where=norm > 0,
+    )
 
     # cleaning up
     del xf
@@ -322,9 +345,8 @@ def compute_geometry(
         radius=RADIUS_EARTH,
         dtype=np.float32,
         bin_dtype=np.uint8,
-        origin_lat_chunksize=16,
         trig_fns=False,
-        dim_order=("origin_latitude", "latitude", "longitude")
+        dims=GEOM_DIMS
 ):
     """
     Calculates:
@@ -366,23 +388,17 @@ def compute_geometry(
     cosine_final_bearing   : cosine of final bearing
     """
 
-    lat0 = xr.DataArray(
-        np.deg2rad(origin_latitudes),
-        dims="origin_latitude",
-        coords={"origin_latitude": origin_latitudes},
-    )
+    coords = {
+        "origin_latitude": origin_latitudes,
+        "latitude": target_latitudes,
+        "longitude": delta_longitudes
+    }
 
-    lat = xr.DataArray(
-        np.deg2rad(target_latitudes),
-        dims="latitude",
-        coords={"latitude": target_latitudes},
-    )
+    lat0 = np.deg2rad(origin_latitudes)[:, None, None]
 
-    dlon = xr.DataArray(
-        np.deg2rad(delta_longitudes),
-        dims="longitude",
-        coords={"longitude": delta_longitudes},
-    )
+    lat = np.deg2rad(target_latitudes)[None, :, None]
+
+    dlon = np.deg2rad(delta_longitudes)[None, None, :]
 
     # trig functions for re-use
     sin_lat0 = np.sin(lat0)
@@ -401,17 +417,33 @@ def compute_geometry(
         cos_lat0,
         cos_lat,
         dlon,
-    ).astype(dtype)
-    distance = distance.transpose(*dim_order)
-    distance.name = "great_circle_distance"
+    )
+    distance = xr.DataArray(
+        distance.astype(dtype),
+        dims=dims,
+        coords=coords,
+        name="great_circle_distance",
+        attrs={"units": "m"}
+    )
 
     # Great circle distance bin
-    distance_bin = compute_distance_bins(distance, distance_edges)
+    distance_bin = compute_distance_bins(distance.values, distance_edges)
     distance_bin = xr.DataArray(
         distance_bin.astype(bin_dtype),
-        dims = distance.dims,
-        coords = distance.coords,
-        name = "great_circle_distance_bin"
+        dims=dims,
+        coords=coords,
+        name="great_circle_distance_bin",
+        attrs={
+            "units": "",
+        }
+    )
+    distance_bin.attrs.update(
+        {
+            "distance_bin_edges": distance_edges.tolist(),
+            "distance_bin_edge_units": "m",
+            "distance_bin_max": float(distance_edges[-1]),
+            "n_distance_bins": len(distance_edges) - 1
+        }
     )
 
     if trig_fns:
@@ -421,10 +453,20 @@ def compute_geometry(
             sin_lat0, cos_lat0,
             sin_lat, cos_lat
         )
-        sin_init = sin_init.transpose(*dim_order)
-        sin_init.name = "sine_initial_bearing"
-        cos_init = cos_init.transpose(*dim_order)
-        cos_init.name = "cosine_initial_bearing"
+        sin_init = xr.DataArray(
+            sin_init.astype(dtype),
+            dims=dims,
+            coords=coords,
+            name="sine_initial_bearing",
+            attrs={"units": ""}
+        )
+        cos_init = xr.DataArray(
+            cos_init.astype(dtype),
+            dims=dims,
+            coords=coords,
+            name="cosine_initial_bearing",
+            attrs={"units": ""}
+        )
 
         # Angular weights
         angular_weight = xr.zeros_like(
@@ -441,8 +483,8 @@ def compute_geometry(
                     dtype=dtype
                 )
             )
-        angular_weight = angular_weight.transpose(*dim_order)
         angular_weight.name = "angular_weight"
+        angular_weight.attrs.update({"units":"rad"})
         
         # Sine, cosine final bearing
         sin_final, cos_final = compute_final_bearing_trig(
@@ -450,38 +492,58 @@ def compute_geometry(
             sin_lat0, cos_lat0,
             sin_lat, cos_lat
         )
-        sin_final = sin_final.transpose(*dim_order)
-        sin_final.name = "sine_final_bearing"
-        cos_final = cos_final.transpose(*dim_order)
-        cos_final.name = "cosine_final_bearing"
+        sin_final = xr.DataArray(
+            sin_final.astype(dtype),
+            dims=dims,
+            coords=coords,
+            name="sine_final_bearing",
+            attrs={"units": ""}
+        )
+        cos_final = xr.DataArray(
+            cos_final.astype(dtype),
+            dims=dims,
+            coords=coords,
+            name="cosine_final_bearing",
+            attrs={"units": ""}
+        )
 
         ds_geom = xr.merge([
             distance, distance_bin, sin_init, cos_init,
             sin_final, cos_final, angular_weight
         ])
     else:
-        #
         # Initial bearing
-        #
         initial_bearing = compute_initial_bearing(
             sin_dlon, cos_dlon,
             sin_lat0, cos_lat0,
             sin_lat, cos_lat
-        ).astype(dtype)
-        initial_bearing = initial_bearing.transpose(*dim_order)
-        initial_bearing.name = "initial_bearing"
+        )
+        initial_bearing = xr.DataArray(
+            initial_bearing.astype(dtype),
+            dims=dims,
+            coords=coords,
+            name="initial_bearing",
+            attrs={"units": "rad"}
+        )
         
-        #
         # Final bearing
-        #
         final_bearing = compute_final_bearing(
             sin_dlon, cos_dlon,
             sin_lat0, cos_lat0,
             sin_lat, cos_lat
-        ).astype(dtype)
-        final_bearing = final_bearing.transpose(*dim_order)
-        final_bearing.name = "final_bearing"
+        )
+        final_bearing = xr.DataArray(
+            final_bearing.astype(dtype),
+            dims=dims,
+            coords=coords,
+            name="final_bearing",
+            attrs={"units": "rad"}
+        )
         
         ds_geom = xr.merge([distance, distance_bin, initial_bearing, final_bearing])
+
+    ds_geom.attrs.update(
+        {"sphere_radius_m": radius}
+    )
 
     return ds_geom
