@@ -1,6 +1,6 @@
 import numpy as np
 
-from lossett.calc.compute_spherical_geometry import (
+from lossett.calc.spherical_geometry import (
     compute_geometry,
     compute_great_circle_distance,
     compute_distance_bins,
