@@ -1,0 +1,8 @@
+{
+  "units": "rad",
+  "_ARRAY_DIMENSIONS": [
+    "origin_latitude",
+    "latitude",
+    "longitude"
+  ]
+}

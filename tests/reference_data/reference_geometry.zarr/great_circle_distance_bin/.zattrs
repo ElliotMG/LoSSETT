@@ -1,0 +1,21 @@
+{
+  "units": "",
+  "distance_bin_edges": [
+    0.0,
+    2859298.1137172244,
+    5718596.227434449,
+    8577894.341151673,
+    11437192.454868898,
+    14296490.568586122,
+    17155788.682303347,
+    20015086.79602057
+  ],
+  "distance_bin_edge_units": "m",
+  "distance_bin_max": 20015086.79602057,
+  "n_distance_bins": 7,
+  "_ARRAY_DIMENSIONS": [
+    "origin_latitude",
+    "latitude",
+    "longitude"
+  ]
+}
