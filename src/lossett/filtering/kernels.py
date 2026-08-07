@@ -16,7 +16,14 @@ def derivative_of_standard_mollifier(x, length_scale=1,normalization=1):
         0
     );
 
-def filter_kernel(length_scale,r,npts=1e4,return_derivative=True,normalization="2D",sphere_radius=6.371e6):
+def filter_kernel(
+        length_scale,
+        r,
+        npts=1e4,
+        return_derivative=True,
+        normalization="2D",
+        sphere_radius=6.371e6
+):
     """
     Compute standard mollifier with length scale \ell, defined by:
         G_\ell(r) = N_\ell \exp( -1 / (1 - (r / 2\ell)^2) )
@@ -34,7 +41,7 @@ def filter_kernel(length_scale,r,npts=1e4,return_derivative=True,normalization="
       - npts: number of points to compute normalization factor (default 1e4). Currently not used; instead normalization
               is computed using user-provided sampling points r.
       - return_derivative: boolean, switch to determine whether to also compute and return derivative.
-      - normalization: how to normalize. Options are 2D Euclidean, 2D sphere, 3D Euclidean (not yet implemented). Default 2D
+      - normalization: how to normalize. Options are 2D Euclidean, 2D sphere, 3D Euclidean. Default 2D Euclidean.
       - sphere_radius: Float. Radius of 2-sphere, used for normalization. Default 6.371e6 (Earth's radius in m).
     """
     _kernel = standard_mollifier(r,length_scale=length_scale)

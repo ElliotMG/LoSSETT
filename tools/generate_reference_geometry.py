@@ -60,6 +60,10 @@ initialize_geometry_store(
     trig_fns=True,
     distance_edges=distance_edges,
     radius=RADIUS_EARTH,
+    extra_attrs={
+        "reference_version": "1.0",
+        "reference_type": "geometry_archive"
+    }
 )
 
 for i0, i1 in iter_chunks(
@@ -76,21 +80,5 @@ for i0, i1 in iter_chunks(
         distance_edges=distance_edges,
         compute_kwargs=compute_kwargs,
     )
-
-# Add reference metadata
-ds = xr.open_zarr(OUTFILE)
-
-ds.attrs.update(
-    {
-        "reference_version": "1.0",
-        "reference_type": "geometry_archive"
-    }
-)
-
-ds.to_zarr(
-    OUTFILE,
-    mode="a",
-    zarr_format=2,
-)
 
 print(f"Wrote {OUTFILE}")

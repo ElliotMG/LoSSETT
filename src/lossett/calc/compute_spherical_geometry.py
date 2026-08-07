@@ -82,6 +82,16 @@ def parse_args():
         action="store_true",
     )
 
+    parser.add_argument(
+        "--nbins-fac",
+        type=int,
+        default=2,
+        help=(
+            "number of distance bins =  number of longitude points / nbins_fac,"
+            "so nbins_fac = 2 gives a spacing of delta x over half a great circle"
+        ) # should add a check to enforce that nbins must be <= # longitude points in half a great circle
+    )
+
     return parser.parse_args()
 
 def build_geometry_filename(
@@ -336,6 +346,7 @@ if __name__ == "__main__":
     save_trig_fns = args.save_trig_fns
     force = args.force
     dtype = DTYPES[args.dtype]
+    nbins_fac = args.nbins_fac
 
     print(
         "\nCOMPUTING SPHERICAL GEOMETRY\n"
@@ -361,7 +372,7 @@ if __name__ == "__main__":
 
     # construct distance bins
     max_r = np.pi * RADIUS_EARTH # half a great circle
-    nbins = len(lons) // 4 # this gives a sampling of 2dx over a half-great-circle
+    nbins = len(lons) // nbins_fac # nbins_fac = 4 gives a sampling of 2dx over a half-great-circle
     distance_edges, _ = build_distance_bins(nbins, max_r=np.pi*RADIUS_EARTH)
 
     ### SETUP ZARR STORE

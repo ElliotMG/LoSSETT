@@ -3,15 +3,16 @@ import xarray as xr
 import numpy as np
 import matplotlib.pyplot as plt
 # local imports
-from .kernels import filter_kernel
+from lossett.filtering.kernels import filter_kernel
 
-radius_earth = 6.371e6
+RADIUS_EARTH = 6.371e6
 
 def get_integration_kernels(
         r,
         length_scales,
+        kernel_type="standard_mollifier",
         normalization="sphere",
-        sphere_radius=radius_earth,
+        sphere_radius=RADIUS_EARTH,
         return_deriv=True
 ):
     """
@@ -19,7 +20,12 @@ def get_integration_kernels(
      - r: sampling points in r-space
      - length_scales: array of length scales
     Optional inputs:
-     - 
+     - kernel_type: name of kernel. The only currently-supported option is standard_mollifier
+     - normalization: geometry to assume when computing normalization. Can be 2D Eculidean, 
+           3D Euclidean, or 2D spherical.
+     - sphere_radius: only relevant for normalization="spherical", so should probably modify...
+     - return_deriv: Boolean controlling whether only the kernel, or both kernel and its derivative, 
+           are returned.
     """
     # TO-DO: check for units consistency between r, length_scales and sphere_radius!
 
@@ -36,17 +42,21 @@ def get_integration_kernels(
             r,
             return_derivative=True,
             normalization="sphere",
-            sphere_radius=radius_earth
+            sphere_radius=sphere_radius
         )
         kernel = xr.DataArray(
             kernel,
             coords = {"r": r,"length_scale": length_scale},
-            dims = "r"
+            dims = "r",
+            name = "G",
+            attrs = {"long_name": "filter kernel"}
         )
         deriv = xr.DataArray(
             deriv,
             coords = {"r": r,"length_scale": length_scale},
-            dims = "r"
+            dims = "r",
+            name = "dG_dr",
+            attrs = {"long_name": "r-derivative of filter kernel"}
         )
         G.append(kernel)
         dG_dr.append(deriv)
@@ -54,31 +64,18 @@ def get_integration_kernels(
     # concatenate into a single xr.DataArray
     G = xr.concat(G,dim="length_scale")
     dG_dr = xr.concat(dG_dr,dim="length_scale")
-    G = G.rename("filter_kernel")
-    dG_dr = dG_dr.rename("r-derivative_of_filter_kernel")
 
     if return_deriv:
-        return G, dG_dr;
+        ds = xr.merge([G, dG_dr])
     else:
-        return G;
+        ds = xr.merge([G])
+    ds.attrs.update({
+        "kernel_properties": {
+            "name": "standard_mollifier",
+            "ratio_rmax_to_ell": 2.0,
+            "ratio_L_to_ell": 2.0,
+        }
+    })
 
-if __name__ == "__main__":
-    delta_r = 0.5
-    deg2m = 110000
-    radius_earth = 6.371e6
-    r = np.arange(0,180,delta_r) #spacing in degrees
-    r *= deg2m # approx. conversion to m
-    l_max = 2e6 # 2000km
-    length_scales = np.arange(0, l_max, delta_r*deg2m)[1:]
-    print(length_scales)
-
-    G, dG_dr = get_integration_kernels(
-        r,
-        length_scales,
-        normalization="sphere",
-        sphere_radius=radius_earth,
-        return_deriv=True
-    )
-
-    print("\n\n\n", (2*np.pi*radius_earth*G*np.sin(G.r/radius_earth)).integrate("r"))
+    return ds
 
