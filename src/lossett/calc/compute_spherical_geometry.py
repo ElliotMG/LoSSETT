@@ -245,7 +245,8 @@ def initialize_geometry_store(
     bin_dtype,
     trig_fns,
     distance_edges,
-    radius=RADIUS_EARTH
+    radius=RADIUS_EARTH,
+    extra_attrs=None    
 ):
     """
     Create an empty geometry Zarr store ready for
@@ -265,6 +266,9 @@ def initialize_geometry_store(
         trig_fns=trig_fns,
         radius=radius
     )
+    
+    if extra_attrs is not None:
+        template.attrs.update(extra_attrs)
 
     encoding = build_encoding(trig_fns)
 

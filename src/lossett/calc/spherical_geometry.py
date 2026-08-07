@@ -543,7 +543,12 @@ def compute_geometry(
         ds_geom = xr.merge([distance, distance_bin, initial_bearing, final_bearing])
 
     ds_geom.attrs.update(
-        {"sphere_radius_m": radius}
+        {
+            "sphere_radius_m": radius,
+            "dtype": repr(dtype),
+            "bin_dtype": repr(bin_dtype),
+            "trig_fns": trig_fns,
+        }
     )
 
     return ds_geom

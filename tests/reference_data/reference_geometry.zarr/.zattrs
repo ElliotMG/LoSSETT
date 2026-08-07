@@ -1,9 +1,9 @@
 {
   "units": "m",
   "sphere_radius_m": 6371000,
+  "dtype": "<class 'numpy.float32'>",
+  "bin_dtype": "<class 'numpy.uint8'>",
+  "trig_fns": true,
   "reference_version": "1.0",
-  "reference_type": "geometry_archive",
-  "dtype": "float32",
-  "bin_dtype": "uint8",
-  "trig_fns": true
+  "reference_type": "geometry_archive"
 }

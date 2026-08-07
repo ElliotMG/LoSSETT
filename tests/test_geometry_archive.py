@@ -89,7 +89,11 @@ def test_archive_vs_direct_metadata(tmp_path):
         ds_archive,
     )
 
-def test_chunked_vs_direct_geometry(tmp_path):
+def test_archived_vs_direct_geometry(tmp_path):
+    """
+    Test whether archived geometry bit-compares with saved
+    Zarr archive.
+    """
 
     origin_lats = np.array([
         -30.0,

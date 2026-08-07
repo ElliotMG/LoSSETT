@@ -83,16 +83,13 @@ ds = xr.open_zarr(OUTFILE)
 ds.attrs.update(
     {
         "reference_version": "1.0",
-        "reference_type": "geometry_archive",
-        "dtype": "float32",
-        "bin_dtype": "uint8",
-        "trig_fns": True
+        "reference_type": "geometry_archive"
     }
 )
 
 ds.to_zarr(
     OUTFILE,
-    mode="w",
+    mode="a",
     zarr_format=2,
 )
 
