@@ -1,4 +1,5 @@
 import numpy as np
+from numba import njit
 
 def voronoi_widths_periodic(chi):
     """
@@ -39,6 +40,58 @@ def bin_integrate(values, bins, nbins, weights=None):
         )
 
     return sum_bin
+
+@njit(cache=True)
+def angular_integral_weighted_numba(
+    integrand,
+    bins,
+    nbins,
+    weights,
+):
+    out = np.zeros(nbins, dtype=np.float64)
+
+    for i in range(integrand.size):
+
+        val = integrand[i]
+
+        if not np.isnan(val):
+            out[bins[i]] += val * weights[i]
+
+    return out
+
+@njit(cache=True)
+def angular_integral_unweighted_numba(
+    integrand,
+    bins,
+    nbins,
+):
+    sum_bin = np.zeros(nbins, dtype=np.float64)
+    n_total = np.zeros(nbins, dtype=np.int64)
+
+    for i in range(integrand.size):
+
+        b = bins[i]
+
+        n_total[b] += 1
+
+        val = integrand[i]
+
+        if not np.isnan(val):
+            sum_bin[b] += val
+
+    out = np.empty(nbins, dtype=np.float64)
+
+    for b in range(nbins):
+        if n_total[b] > 0:
+            out[b] = (
+                2*np.pi
+                * sum_bin[b]
+                / n_total[b]
+            )
+        else:
+            out[b] = np.nan
+
+    return out
 
 def angular_integral_by_distance_bin(
     integrand,
@@ -101,26 +154,36 @@ def angular_integral_by_distance_bin(
 
         weights = weights[valid]
 
-        return bin_integrate(
+        return angular_integral_weighted_numba(
             integrand,
             bins_valid,
             nbins,
-            weights=weights,
+            weights,
         )
+        #return bin_integrate(
+        #    integrand,
+        #    bins_valid,
+        #    nbins,
+        #    weights=weights,
+        #)
 
     else:
-        n_total = np.bincount(
-            bins,
-            minlength=nbins,
-        )
-
-        return np.divide(
-            2*np.pi * bin_integrate(
-                integrand,
-                bins_valid,
-                nbins,
-            ),
-            n_total,
-            out=np.full(nbins, np.nan),
-            where=n_total > 0,
+        #n_total = np.bincount(
+        #    bins,
+        #    minlength=nbins,
+        #)
+        #return np.divide(
+        #    2*np.pi * bin_integrate(
+        #        integrand,
+        #        bins_valid,
+        #        nbins,
+        #    ),
+        #    n_total,
+        #    out=np.full(nbins, np.nan),
+        #    where=n_total > 0,
+        #)
+        return angular_integral_unweighted_numba(
+            integrand,
+            bins_valid,
+            nbins,
         )

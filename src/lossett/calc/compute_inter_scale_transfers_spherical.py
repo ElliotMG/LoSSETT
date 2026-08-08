@@ -140,7 +140,8 @@ def compute_inter_scale_kinetic_energy_transfer(
 if __name__ == "__main__":
     date = "20160801"
     #grid="2p5deg"
-    grid="1p0deg"
+    #grid="1p0deg"
+    grid = "n320"
     #grid = "n320_maxR_5000"
     #grid = "n640_maxR_5000"
     #grid = "n1280_maxR_2000"
@@ -162,16 +163,82 @@ if __name__ == "__main__":
     
     print("\n\n\n",DL_u,"\n\n\n")
 
-    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(20,10), subplot_kw={"projection":cpy.crs.Robinson()})
-    ax = axes[0,0]
-    DL_u.isel(L=0).plot.pcolormesh(ax=ax, transform=cpy.crs.PlateCarree())
-    ax = axes[0,1]
-    DL_u.sel(L=1000*1e3, method="nearest").plot.pcolormesh(ax=ax, transform=cpy.crs.PlateCarree())
-    ax = axes[1,0]
-    DL_u.sel(L=5000*1e3, method="nearest").plot.pcolormesh(ax=ax, transform=cpy.crs.PlateCarree())
-    ax = axes[1,1]
-    DL_u.isel(L=-1).plot.pcolormesh(ax=ax, transform=cpy.crs.PlateCarree())
+    mag=1e-3
+    cmap="RdBu_r"
+    projection = cpy.crs.Robinson()
 
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(20,10), subplot_kw={"projection":projection})
+    ax = axes[0,0]
+    DL_u.isel(L=0).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    ax = axes[0,1]
+    DL_u.sel(L=1000*1e3, method="nearest").plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    ax = axes[1,0]
+    DL_u.sel(L=5000*1e3, method="nearest").plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    ax = axes[1,1]
+    DL_u.isel(L=-1).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    for ax in axes.flatten():
+        ax.coastlines()
+        ax.grid()
+
+    # 40S - 40N
+    slice_lat = slice(-40,40)
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(20,10), subplot_kw={"projection":projection})
+    ax = axes[0,0]
+    DL_u.isel(L=0).sel(latitude=slice_lat).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    ax = axes[0,1]
+    DL_u.sel(L=1000*1e3, method="nearest").sel(latitude=slice_lat).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    ax = axes[1,0]
+    DL_u.sel(L=5000*1e3, method="nearest").sel(latitude=slice_lat).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    ax = axes[1,1]
+    DL_u.isel(L=-1).sel(latitude=slice_lat).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
     for ax in axes.flatten():
         ax.coastlines()
         ax.grid()

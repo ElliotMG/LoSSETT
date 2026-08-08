@@ -10,6 +10,10 @@ import argparse
 import logging
 from importlib.metadata import version
 
+# for profiling
+import cProfile
+import pstats
+
 from lossett.calc.compute_spherical_geometry import (
     build_geometry_filename, build_regular_latlon_grid,
     GRID_DEFS, RADIUS_EARTH, DTYPES
@@ -98,6 +102,12 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--geometry-approx",
+        default="spherical",
+        choices=["spherical", "tangent_plane", "tangent_quadratic"],
+    )
+
+    parser.add_argument(
         "--nbins-fac",
         type=int,
         default=2,
@@ -173,8 +183,6 @@ def load_velocity_field(date="20160801", interp_lats=None, interp_lons=None, ret
 def create_du_cubed_template(
         distances, origin_latitudes, origin_longitudes,
         chunk_dist, chunk_lat, chunk_lon,
-        #distances, times,  pressures,  origin_latitudes, origin_longitudes,
-        #chunk_dist, chunk_time, chunk_pressure, chunk_lat, chunk_lon,
         dtype=np.float32
 ):
     # should possibly modify to include time, pressure
@@ -324,7 +332,6 @@ def load_geometry_chunk(ds_geom, olat_chunk, distance_edges, max_R=None, profile
 
 def process_origin_longitude(
     olon,
-    #i_olon,
     u,
     v,
     geom_chunk,
@@ -332,7 +339,8 @@ def process_origin_longitude(
     distances,
     dtype=np.float64,
     use_angular_weights=False,
-    profile=False
+    profile=False,
+    method="spherical"
 ) -> xr.DataArray:
     """
     Compute azimuthally integrated delta-u^3 for a single
@@ -400,6 +408,9 @@ def process_origin_longitude(
         )
     
     if active_indices is None:
+        if method != "spherical":
+            print(f"Error: Cannot compute full sphere with method = {method}; use method = spherical.")
+            sys.exit(1)
         # compute over the full sphere
         du_cubed_ang_int = compute_du3_angular_integral_global(
             u_roll,
@@ -423,6 +434,7 @@ def process_origin_longitude(
             nbins, # should get nbins from geom_chunk
             dtype=dtype,
             use_angular_weights=use_angular_weights,
+            method=method
         )
     #endif
     return xr.DataArray(
@@ -460,6 +472,7 @@ if __name__ == "__main__":
     profile = args.profile
     use_angular_weights = args.use_angular_weights
     nbins_fac = args.nbins_fac
+    method = args.geometry_approx
     setup_logging(args.log_level)
     date = "20160801"
 
@@ -506,10 +519,14 @@ if __name__ == "__main__":
     else:
         maxR_str = f"_maxR_{int(max_R/1e3):05d}"
     #endif
+    if method != "spherical":
+        method_str = f"_{method}"
+    else:
+        method_str = ""
     du3_fpath = os.path.join(
         save_path,
         f"glm.n1280_GAL9_DS_{date}T00_inter_scale_transfer_of_kinetic_energy_"
-        f"p0200hPa_{grid}{maxR_str}.zarr"
+        f"p0200hPa_{grid}{maxR_str}{method_str}.zarr"
     )
     chunk_dist = -1
     chunk_time = 1
@@ -539,6 +556,9 @@ if __name__ == "__main__":
             zarr_format=2,
         )
 
+        logger.info("\nEntering latitude loop")
+        t0_global = time.perf_counter()
+
         for olat_chunk in origin_lat_chunk_bounds:
             lat_start = (
                 ds_geom
@@ -557,8 +577,15 @@ if __name__ == "__main__":
                 ds_geom, olat_chunk, distance_edges, max_R=max_R
             )
 
+            t0_lat_chunk = time.perf_counter()
+
             du_cubed_ang_int =[]
-            for olon in origin_lons:
+            for ilon, olon in enumerate(origin_lons):
+                if profile:
+                    if ilon == 1:
+                        # allow Numba to compile on the first longitude
+                        prof = cProfile.Profile()
+                        prof.enable()
                 logger.debug(f"\nOrigin longitude = {olon}")
                 du_cubed_ang_int.append(
                     process_origin_longitude(
@@ -570,8 +597,16 @@ if __name__ == "__main__":
                         distances,
                         dtype=calc_dtype,
                         use_angular_weights=use_angular_weights,
+                        method=method,
                     )
-                )                
+                )
+                if profile:
+                    if ilon == 1:
+                        prof.disable()
+                        stats = pstats.Stats(prof)
+                        stats.sort_stats("cumtime")
+                        stats.print_stats(50)
+                        sys.exit(1)
             #endfor
             ds_out = xr.Dataset(
                 {
@@ -584,6 +619,10 @@ if __name__ == "__main__":
                         )
                     )
                 }
+            )
+            logger.info(
+                "\nTime computing du^3 angular integral: "
+                f"{time.perf_counter()-t0_lat_chunk:.6f}"
             )
 
             da = ds_out.delta_u_cubed_angular_integral.astype(save_dtype)
@@ -603,5 +642,9 @@ if __name__ == "__main__":
                 }
             )
         #endfor
+        logger.info(
+            "\nTotal time in computation: "
+            f"{time.perf_counter()-t0_global:.6f}"
+        )
 
     logger.info("\n\nEND.")
