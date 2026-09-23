@@ -42,18 +42,18 @@ from lossett.profiling import benchmark
 # USER SETTINGS
 ###############################################################################
 
-grid = "n640"
+grid = "n1280"
 date = "20160801"
+
+chunk_origin = 8
+nbins_fac = 2
+
+repeats = 100
 
 geom_path = (
     "/work/scratch-pw5/dship/upscale/LoSSETT/"
     "spherical_geometry/"
 )
-
-chunk_origin = 16
-nbins_fac = 2
-
-repeats = 100
 
 
 ###############################################################################

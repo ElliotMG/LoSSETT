@@ -38,18 +38,18 @@ print(EXPR_DU3.input_names)
 # Configuration
 #
 
-grid = "n640"
+grid = "n1280"
 
-n_repeats = 100
+chunk_origin = 8
+nbins_fac = 2
+date = "20160801"
+
+n_repeats = 10
 
 geom_path = (
     "/work/scratch-pw5/dship/upscale/LoSSETT/"
     "spherical_geometry/"
 )
-
-chunk_origin = 16
-nbins_fac = 2
-date = "20160801"
 
 #
 # Build analysis grid
