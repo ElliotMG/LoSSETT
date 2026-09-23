@@ -24,6 +24,18 @@ EXPR_DU3 = ne.NumExpr(
     "du_t*(du_t*du_t + du_n*du_n)"
 )
 
+EXPR_DUSQ = ne.NumExpr(
+    "du_t*du_t + du_n*du_n + dw*dw"
+)
+
+EXPR_DU3_LONG = ne.NumExpr(
+    "du_t * du_sq"
+)
+
+EXPR_DU3_VERT = ne.NumExpr(
+    "dw * du_sq"
+)
+
 def compute_delta_u_cubed(
     u, v, u0, v0,
     sin_init, cos_init,
@@ -49,16 +61,113 @@ def compute_delta_u_cubed(
 
     del du_t
     del du_n
-
-    ### TO DO: ADD VERTICAL VELOCITY CAPABILITY
     
     return du_cubed
+
+def compute_delta_u_cubed_NEW(
+    u, v, u0, v0,
+    sin_init, cos_init,
+    sin_final, cos_final,
+    w=None, w0=None,
+):
+    if (w is None) != (w0 is None):
+        raise ValueError("Must provide both w and w0")
+    
+    # velocity increment tangent to geodesic ("longitudinal" part)
+    du_t = (
+        u*sin_final
+        + v*cos_final
+        - u0*sin_init
+        - v0*cos_init
+    )
+    # velocity increment normal to geodesic ("transverse" part)
+    du_n = (
+        u*cos_final
+        - v*sin_final
+        - u0*cos_init
+        + v0*sin_init
+    )
+    if w is not None:
+        # vertical velocity increment (also normal to geodesic)
+        dw = w - w0
+        # compute du^2
+        du_sq = (du_t*du_t + du_n*du_n + dw*dw)
+        # compute delta u cubed dot rhat (longitudinal)
+        du_cubed_long = du_t * du_sq
+        # compute delta u cubed (transverse, vertical part)
+        du_cubed_vert = dw * du_sq
+        del du_t
+        del du_n
+        del dw
+        del du_sq
+        return du_cubed_long, du_cubed_vert
+    else:
+        # compute delta u cubed dot rhat (longitudinal)
+        du_cubed = du_t * (du_t*du_t + du_n*du_n)
+        del du_t
+        del du_n
+        return du_cubed, None
+
+def compute_delta_u_cubed_numexpr_NEW(
+    u, v, u0, v0,
+    sin_init, cos_init,
+    sin_final, cos_final,
+    w=None, w0=None,
+):
+    # velocity increment tangent to geodesic ("longitudinal" part)
+    # EXPR_DUT REQUIRES INPUT IN THIS ORDER:
+    # 'cos_final', 'cos_init', 'sin_final', 'sin_init', 'u', 'u0', 'v', 'v0'
+    du_t = EXPR_DUT(
+        cos_final, cos_init,
+        sin_final, sin_init,
+        u, u0, v, v0
+    )
+    
+    # velocity increment normal to geodesic (horizontal "transverse" part)
+    # EXPR_DUN REQUIRES INPUT IN THIS ORDER:
+    # 'cos_final', 'cos_init', 'sin_final', 'sin_init', 'u', 'u0', 'v', 'v0'
+    du_n = EXPR_DUN(
+        cos_final, cos_init,
+        sin_final, sin_init,
+        u, u0, v, v0
+    )
+
+    if w is not None:
+        # vertical velocity increment (vertical "transverse" part)
+        dw = w - w0
+
+        # (delta u)^2
+        du_sq = EXPR_DUSQ(
+            du_n, du_t, dw
+        )
+
+        # longitudinal third-order velocity increment
+        # EXPR_DU3_LONG REQUIRES INPUT IN THIS ORDER:
+        # 'du_n', 'du_t'
+        du_cubed_long = EXPR_DU3_LONG(
+            du_sq, du_t
+        )
+
+        # vertical transverse third-order velocity increment
+        # EXPR_DU3_VERT REQUIRES INPUT IN THIS ORDER:
+        # 'du_sq', 'dw'
+        du_cubed_vert = EXPR_DU3_VERT(
+            du_sq, dw
+        )
+        return du_cubed_long, du_cubed_vert
+    else:
+        # longitudinal third-order velocity increment
+        # EXPR_DU3 REQUIRES INPUT IN THIS ORDER:
+        # 'du_n', 'du_t'
+        du_cubed = EXPR_DU3(
+            du_n, du_t
+        )
+        return du_cubed, None
 
 def compute_delta_u_cubed_numexpr(
     u, v, u0, v0,
     sin_init, cos_init,
     sin_final, cos_final,
-    w=None
 ):
     # velocity increment tangent to geodesic ("longitudinal" part)
     # EXPR_DUT REQUIRES INPUT IN THIS ORDER:
@@ -70,17 +179,15 @@ def compute_delta_u_cubed_numexpr(
     )
     
     # velocity increment normal to geodesic ("transverse" part)
-    # EXPR_DUn REQUIRES INPUT IN THIS ORDER:
+    # EXPR_DUN REQUIRES INPUT IN THIS ORDER:
     # 'cos_final', 'cos_init', 'sin_final', 'sin_init', 'u', 'u0', 'v', 'v0'
     du_n = EXPR_DUN(
         cos_final, cos_init,
         sin_final, sin_init,
         u, u0, v, v0
     )
-
-    ### TO DO: ADD VERTICAL VELOCITY CAPABILITY
     
-    # EXPR_DUN REQUIRES INPUT IN THIS ORDER:
+    # EXPR_DU3 REQUIRES INPUT IN THIS ORDER:
     # 'du_n', 'du_t'
     return EXPR_DU3(
         du_n, du_t
@@ -247,6 +354,9 @@ def compute_du3_angular_integral_global(
         nbins,
         dtype=np.float64,
         use_angular_weights=False,
+        w=None,
+        w0=None,
+        profiler=None,
 ):
     """
     Inputs
@@ -275,17 +385,17 @@ def compute_du3_angular_integral_global(
     integrals
         (origin_latitude, nbins)
     """
+    if (w is None) != (w0 is None):
+        raise ValueError("Must provide both w and w0")
+    
     chunk_len = geom_chunk.sizes["origin_latitude"]
-                
+
+    if profiler:
+        t0_du3 = time.perf_counter()
     # compute du_cubed
-    #du_cubed = compute_delta_u_cubed(
-    #    u, v, u0, v0,
-    #    geom_chunk.sine_initial_bearing, geom_chunk.cosine_initial_bearing,
-    #    geom_chunk.sine_final_bearing, geom_chunk.cosine_final_bearing,
-    #    w=None
-    #).load()
-    #du_cubed = compute_delta_u_cubed(
-    du_cubed = compute_delta_u_cubed_numexpr(
+    #du_cubed_long, du_cubed_vert = compute_delta_u_cubed_NEW(
+    du_cubed_long, du_cubed_vert = compute_delta_u_cubed_numexpr_NEW(
+    #du_cubed = compute_delta_u_cubed_numexpr(
         u.values,
         v.values,
         u0.values[:,None,None],
@@ -294,10 +404,18 @@ def compute_du3_angular_integral_global(
         geom_chunk.cosine_initial_bearing.values,
         geom_chunk.sine_final_bearing.values,
         geom_chunk.cosine_final_bearing.values,
-        w=None
+        w=w.values if w is not None else None,
+        w0=w0.values[:,None,None] if w is not None else None,
     )
+    if profiler:
+        profiler.add(
+            "angular integral: du^3",
+            time.perf_counter() - t0_du3
+        )
 
     # pre-compute geometry lookups
+    if profiler:
+        t0_cache = time.perf_counter()
     bins_cache = [
         arr.ravel()
         for arr in geom_chunk.great_circle_distance_bin.values
@@ -308,35 +426,54 @@ def compute_du3_angular_integral_global(
             arr.ravel()
             for arr in geom_chunk.angular_weight.values
         ]
+    if profiler:
+        profiler.add(
+            "angular integral: geom cache",
+            time.perf_counter() - t0_cache
+        )
     
     # compute angular integral (this should be a function)
-    integrals = np.empty((chunk_len, nbins), dtype=dtype)
+    if profiler:
+        t0_integral = time.perf_counter()
+    integrals_long = np.empty((chunk_len, nbins), dtype=dtype)
+    if w is not None:
+        integrals_vert = np.empty((chunk_len, nbins), dtype=dtype)
+    else:
+        integrals_vert = None
+    #endif
+    
     for i in range(chunk_len):
-        #du3 = du_cubed.isel(origin_latitude=i).values.ravel()
-        du3 = du_cubed[i,:,:].ravel()
-        #bins = geom_chunk.great_circle_distance_bin.isel(origin_latitude=i).values.ravel()
-        if use_angular_weights:
-            #weights = geom_chunk.angular_weight.isel(origin_latitude=i).values.ravel()
-            integrals[i] = angular_integral_by_distance_bin(
-                du3,
-                #bins,
+        weights = weights_cache[i] if use_angular_weights else None
+        
+        du3_long = du_cubed_long[i,:,:].ravel()
+        
+        integrals_long[i] = angular_integral_by_distance_bin(
+            du3_long,
+            bins_cache[i],
+            nbins,
+            weights=weights,
+        )
+        if w is not None:
+            du3_vert = du_cubed_vert[i,:,:].ravel()
+            integrals_vert[i] = angular_integral_by_distance_bin(
+                du3_vert,
                 bins_cache[i],
                 nbins,
-                weights=weights_cache[i],
+                weights=weights,
             )
-        else:
-            #weights = None
-            integrals[i] = angular_integral_by_distance_bin(
-                du3,
-                #bins,
-                bins_cache[i],
-                nbins,
-            )
+        #endif
+    #endfor
+    if profiler:
+        profiler.add(
+            "angular integral: integral by distance bin",
+            time.perf_counter() - t0_integral
+        )
         
     # clean up
-    del du_cubed
+    del du_cubed_long
+    del du_cubed_vert
             
-    return integrals
+    return integrals_long, integrals_vert
 
 def compute_du3_angular_integral_subset(
         u,
@@ -348,7 +485,9 @@ def compute_du3_angular_integral_subset(
         nbins,
         dtype=np.float64,
         use_angular_weights=False,
-        method="spherical"
+        method="spherical",
+        w=None,
+        w0=None,
 ):
     """
     Inputs
@@ -378,6 +517,8 @@ def compute_du3_angular_integral_subset(
     integrals
         (origin_latitude, nbins)
     """
+    if (w is None) != (w0 is None):
+        raise ValueError("Must provide both w and w0")
     
     nchunk = len(active_indices)
 
@@ -402,11 +543,22 @@ def compute_du3_angular_integral_subset(
 
         # compute du^3
         if method == "spherical":
-            du3 = compute_delta_u_cubed(
-                u_sel, v_sel,
-                u0_sel, v0_sel,
-                sin_init_sel, cos_init_sel,
-                sin_final_sel, cos_final_sel,
+            #du3 = compute_delta_u_cubed(
+            #    u_sel, v_sel,
+            #    u0_sel, v0_sel,
+            #    sin_init_sel, cos_init_sel,
+            #    sin_final_sel, cos_final_sel,
+            #    w=None
+            #)
+            du3 = compute_delta_u_cubed_numexpr(
+                u_sel,
+                v_sel,
+                u0_sel,
+                v0_sel,
+                sin_init_sel,
+                cos_init_sel,
+                sin_final_sel,
+                cos_final_sel,
                 w=None
             )
         elif method == "tangent_plane":

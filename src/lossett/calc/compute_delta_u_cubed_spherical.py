@@ -9,6 +9,7 @@ from datetime import datetime, UTC
 import argparse
 import logging
 from importlib.metadata import version
+from pathlib import Path
 
 # for profiling
 import cProfile
@@ -22,7 +23,7 @@ from lossett.calc.field_increments import (
     compute_du3_angular_integral_global,
     compute_du3_angular_integral_subset,
 )
-from lossett.profiling import profile_block
+from lossett.profiling import Profiler, profile_block
 
 # Module-scope variables
 LOSSETT_VN = version("lossett")
@@ -32,10 +33,30 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
+        "--velocity-file",
+        required=True,
+        help="Preprocessed velocity file; must contain variables called u and v"
+    )
+
+    parser.add_argument(
         "--grid",
         required=True,
         choices=GRID_DEFS.keys(),
         help="Grid definition (must be regular lat-lon)"
+    )
+
+    parser.add_argument(
+        "--time-index",
+        type=int,
+        required=True,
+        help="Time index"
+    )
+
+    parser.add_argument(
+        "--pressure",
+        type=int,
+        required=True,
+        help="Pressure level in hPa."
     )
 
     parser.add_argument(
@@ -48,6 +69,15 @@ def parse_args():
         "--save-path",
         required=True,
         help="Output directory"
+    )
+
+    parser.add_argument(
+        "--outname-root",
+        default=None,
+        help=(
+            "Root name for output file. "
+            "Defaults to the velocity file stem."
+        )
     )
 
     parser.add_argument(
@@ -105,6 +135,10 @@ def parse_args():
         "--geometry-approx",
         default="spherical",
         choices=["spherical", "tangent_plane", "tangent_quadratic"],
+        help=(
+            "Approximation to be used in spherical geometry calculation. 'spherical' uses full spherical "
+            "geometry but is slower to execute."
+        )
     )
 
     parser.add_argument(
@@ -115,6 +149,24 @@ def parse_args():
             "number of distance bins =  number of longitude points / nbins_fac,"
             "so nbins_fac = 2 gives a spacing of delta x over half a great circle"
         ) # should add a check to enforce that nbins must be <= # longitude points in half a great circle
+    )
+
+    parser.add_argument(
+        "--include-w",
+        action="store_true",
+        help=(
+            "Include vertical velocity in delta_u_cubed calculation?"
+        )
+    )
+
+    parser.add_argument(
+        "--write-buffer-mb",
+        type=float,
+        default=1000.0,
+        help=(
+            "Target amount of output data (in MB) to buffer in memory "
+            "before writing to disk."
+        )
     )
 
     return parser.parse_args()
@@ -142,74 +194,98 @@ def load_geometry(geom_path, grid, chunk_origin, nlat, nlon, nbins_fac=4):
     ds_geom = xr.open_zarr(geom_fpath)
     origin_chunks = ds_geom.great_circle_distance.chunksizes["origin_latitude"]
     origin_lat_chunk_bounds = get_chunk_bounds(origin_chunks)
-    distance_edges = np.array(ds_geom.great_circle_distance_bin.attrs["distance_bin_edges"])
+    distance_edges = np.array(
+        ds_geom.great_circle_distance_bin.attrs["distance_bin_edges"]
+    )
     distances = ( distance_edges[1:] + distance_edges[:-1] ) / 2
-    nbins = len(distances)
 
     return (
-        ds_geom, distances, distance_edges, origin_lat_chunk_bounds, nbins
+        ds_geom, distances, distance_edges, origin_lat_chunk_bounds,
     )
 
-def load_velocity_field(date="20160801", interp_lats=None, interp_lons=None, return_fpath=True):
-    # getting the file path should be another function
-    # this function should take fpath as an argument & just do the loading & tidying
-    u_fpath = "/gws/ssde/j25b/kscale/USERS/dship/LoSSETT_in/preprocessed_kscale_data/"\
-        f"DYAMOND_SUMMER/glm.n1280_GAL9.uvw_{date}T00.nc"
-    ds_u = xr.open_dataset(
-        u_fpath,
-        decode_timedelta=False # since we're immediately dropping the timedelta variables
-    ).drop_vars(["forecast_reference_time","forecast_period"])
-    lon_attrs = ds_u.longitude.attrs
-    ds_u.coords["longitude"] = (ds_u.coords["longitude"] + 180) % 360 - 180
-    ds_u = ds_u.sortby(ds_u.longitude)
-    ds_u.longitude.attrs = lon_attrs
-    #times = ds_u.time
-    #pressures = ds_u.pressure
-    ds_u = ds_u.isel(time=0).sel(pressure=200)
+def load_velocity_field(
+    velocity_file,
+    pressure,
+    time_index,
+) -> xr.Dataset:
 
-    u = ds_u.u
-    v = ds_u.v
+    ds = xr.open_dataset(
+        velocity_file,
+        decode_timedelta=False,
+    )
 
-    if interp_lats is not None or interp_lons is not None:
-        # interpolate to coarser grid for testing
-        u = u.interp(latitude=interp_lats, longitude=interp_lons)
-        v = v.interp(latitude=interp_lats, longitude=interp_lons)
+    drop_vars = [
+        v
+        for v in [
+            "forecast_reference_time",
+            "forecast_period",
+        ]
+        if v in ds
+    ]
 
-    if return_fpath:
-        return u, v, u_fpath
-    else:
-        return u, v
+    if drop_vars:
+        ds = ds.drop_vars(drop_vars)
+
+    ds = ds.isel(time=time_index)
+
+    ptol = 0.5 # hPa; suitable for pressure values in the troposphere and stratosphere
+    ds = ds.sel(pressure=pressure, method="nearest", tolerance=ptol)
+
+    return ds
 
 def create_du_cubed_template(
+        pressure, time,
         distances, origin_latitudes, origin_longitudes,
         chunk_dist, chunk_lat, chunk_lon,
-        dtype=np.float32
+        dtype=np.float32,
+        include_vertical=False
 ):
-    # should possibly modify to include time, pressure
-    template = xr.Dataset(
-        {
-            "delta_u_cubed_angular_integral": (
-                ("great_circle_distance", "origin_latitude", "origin_longitude"),
-                #  may be better to have a different dimension ordering, but this is CF-compliant
-                da.empty(
-                    (
-                        len(distances),
-                        len(origin_latitudes),
-                        len(origin_longitudes),
-                    ),
-                    dtype=dtype,
-                    chunks=(
-                        chunk_dist,
-                        chunk_lat,
-                        chunk_lon,
-                    ),
+    variables = {
+        "delta_u_cubed_angular_integral_longitudinal": (
+            ("great_circle_distance", "origin_latitude", "origin_longitude"),
+            #  may be better to have a different dimension ordering, but this is CF-compliant
+            da.empty(
+                (
+                    len(distances),
+                    len(origin_latitudes),
+                    len(origin_longitudes),
+                ),
+                dtype=dtype,
+                chunks=(
+                    chunk_dist,
+                    chunk_lat,
+                    chunk_lon,
                 ),
             ),
-        },
+        ),
+    }
+    if include_vertical:
+        variables["delta_u_cubed_angular_integral_vertical"] = (
+            ("great_circle_distance", "origin_latitude", "origin_longitude"),
+            #  may be better to have a different dimension ordering, but this is CF-compliant
+            da.empty(
+                (
+                    len(distances),
+                    len(origin_latitudes),
+                    len(origin_longitudes),
+                ),
+                dtype=dtype,
+                chunks=(
+                    chunk_dist,
+                    chunk_lat,
+                    chunk_lon,
+                ),
+            ),
+        )
+    # should possibly modify to include time, pressure
+    template = xr.Dataset(
+        variables,
         coords={
             "great_circle_distance": distances,
             "origin_latitude": origin_latitudes,
             "origin_longitude": origin_longitudes,
+            "pressure": pressure,
+            "time": time,
         },
     )
 
@@ -234,18 +310,39 @@ def create_du_cubed_template(
     template["origin_longitude"].attrs = {
         "units": "degrees_east",
     }
+    template["pressure"].attrs = {
+        "units": "hPa",
+        "long_name": "Pressure level",
+    }
+    template["time"].attrs = {
+        "long_name": "Time (UTC)"
+    }
 
-    # data variable
-    template["delta_u_cubed_angular_integral"].attrs.update(
+    # data variable(s)
+    template["delta_u_cubed_angular_integral_longitudinal"].attrs.update(
         {
             "units": "m3 s-3",
             "long_name": (
-                "Angular integral of delta_u cubed"
+                "Angular integral of delta_u cubed (longitudinal)"
             ),
-            "description": "Locally angle-integrated third-order longitudinal velocity structure function."
-            "Velocity increments computed on pressure surfaces along great-circle displacements."
+            "description": (
+                "Locally angle-integrated longitudinal part of third-order "
+                "velocity structure function. Velocity increments computed "
+                "on pressure surfaces along great-circle displacements."
+            )
         }
     )
+    if include_vertical:
+        template["delta_u_cubed_angular_integral_vertical"].attrs.update(
+            {
+                "units": "m3 s-3",
+                "long_name": (
+                    "Angular integral of delta_u cubed (transverse, vertical)"
+                ),
+                "description": "Locally angle-integrated vertical transverse part of third-order velocity structure function."
+                "Velocity increments computed on pressure surfaces along great-circle displacements."
+            }
+        )
     return template
 
 def get_chunk_bounds(chunksizes):
@@ -339,9 +436,10 @@ def process_origin_longitude(
     distances,
     dtype=np.float64,
     use_angular_weights=False,
-    profile=False,
-    method="spherical"
-) -> xr.DataArray:
+    profiler=None,
+    method="spherical",
+    w=None,
+) -> xr.Dataset:
     """
     Compute azimuthally integrated delta-u^3 for a single
     origin longitude.
@@ -350,9 +448,6 @@ def process_origin_longitude(
     ----------
     olon : float
         Origin longitude.
-
-    i_olon : int
-        Index of origin longitude
 
     u, v : xr.DataArray
         Velocity components on the analysis grid.
@@ -364,9 +459,6 @@ def process_origin_longitude(
     active_indices : list or None
         Optional spherical-cap selection.
 
-    nbins: int
-        Number of great-circle distance bins
-
     distances: np.ndarray
         Centres of great circle distance bins
 
@@ -375,8 +467,15 @@ def process_origin_longitude(
 
     Returns
     -------
-    xr.DataArray
-        (origin_longitude, origin_latitude,
+    xr.Dataset containing:
+    
+    delta_u_cubed_angular_integral_longitudinal
+        Longitudinal contribution to (delta u)^3, locally azimuthally-averaged
+
+    delta_u_cubed_angular_integral_vertical
+        Vertical transverse contribution to (delta u)^3, locally azimuthally-averaged
+
+    Dimensions: (origin_longitude, origin_latitude,
          great_circle_distance)
     """
 
@@ -397,59 +496,121 @@ def process_origin_longitude(
     )
                 
     # roll wind fields (need to check if actually faster than rolling geometry)
-    if profile:
-        t0 = time.perf_counter()
+    if profiler:
+        t0_roll = time.perf_counter()
     u_roll = u.roll(longitude=-lon_shift, roll_coords=False).load()
     v_roll = v.roll(longitude=-lon_shift, roll_coords=False).load()
-    if profile:
-        logger.debug(
-            f"Roll: "
-            f"{time.perf_counter()-t0:.6f}s"
+    if w is not None:
+        w0 = w.sel(
+            latitude=geom_chunk.origin_latitude,
+            longitude=olon,
+            method="nearest"
         )
+        w_roll = w.roll(longitude=-lon_shift, roll_coords=False).load()
+    else:
+        w0=None
+        w_roll=None
     
+    if profiler:
+        profiler.add(
+            "field roll",
+            time.perf_counter() - t0_roll
+        )
+
+    # angular integration
+    if profiler:
+        t0_ang_int = time.perf_counter()
     if active_indices is None:
         if method != "spherical":
-            print(f"Error: Cannot compute full sphere with method = {method}; use method = spherical.")
+            print(
+                f"Error: Cannot compute full sphere with method = {method}; "
+                f"must use method = spherical.")
             sys.exit(1)
         # compute over the full sphere
-        du_cubed_ang_int = compute_du3_angular_integral_global(
-            u_roll,
-            v_roll,
-            u0,
-            v0,
-            geom_chunk,
-            nbins,
-            dtype=dtype,
-            use_angular_weights=use_angular_weights,
-        )
+        du_cubed_ang_int_long, du_cubed_ang_int_vert = \
+            compute_du3_angular_integral_global(
+                u_roll,
+                v_roll,
+                u0,
+                v0,
+                geom_chunk,
+                nbins,
+                dtype=dtype,
+                use_angular_weights=use_angular_weights,
+                w=w_roll,
+                w0=w0,
+                profiler=profiler,
+            )
     else:
         # compute within a spherical cap of radius max_R
-        du_cubed_ang_int = compute_du3_angular_integral_subset(
-            u_roll,
-            v_roll,
-            u0,
-            v0,
-            geom_chunk,
-            active_indices,
-            nbins, # should get nbins from geom_chunk
-            dtype=dtype,
-            use_angular_weights=use_angular_weights,
-            method=method
-        )
+        du_cubed_ang_int_long, du_cubed_ang_int_vert = \
+            compute_du3_angular_integral_subset(
+                u_roll,
+                v_roll,
+                u0,
+                v0,
+                geom_chunk,
+                active_indices,
+                nbins, # should get nbins from geom_chunk
+                dtype=dtype,
+                use_angular_weights=use_angular_weights,
+                method=method,
+                w=w_roll,
+                w0=w0,
+                profiler=profiler,
+            )
     #endif
-    return xr.DataArray(
-        du_cubed_ang_int,
-        dims=(
-            "origin_latitude",
-            "great_circle_distance",
-        ),
+    
+    if profiler:
+        profiler.add(
+            "angular integration",
+            time.perf_counter() - t0_ang_int
+        )
+
+    ds = xr.Dataset(
+        data_vars = {
+            "delta_u_cubed_angular_integral_longitudinal": (
+                ("origin_latitude","great_circle_distance"),
+                du_cubed_ang_int_long,
+            ),
+        },
         coords={
             "origin_latitude": geom_chunk.origin_latitude,
             "great_circle_distance": distances,
         },
-        name="delta_u_cubed_angular_integral",
-    ).expand_dims(
+    )
+    if du_cubed_ang_int_vert is not None:
+        ds["delta_u_cubed_angular_integral_vertical"] = (
+            ("origin_latitude","great_circle_distance"),
+            du_cubed_ang_int_vert,
+        )
+    
+    return ds.expand_dims(
         origin_longitude=[olon]
+    )
+
+def write_origin_latitude_batch(
+    batch,
+    batch_start,
+    batch_end,
+    fpath,
+    save_dtype,
+):
+    ds_write = xr.concat(
+        batch,
+        dim="origin_latitude"
+    )
+
+    ds_write = ds_write.astype(save_dtype)
+
+    ds_write.to_zarr(
+        fpath,
+        region={
+            "origin_latitude": slice(
+                batch_start,
+                batch_end,
+            )
+        }
     )
 
 if __name__ == "__main__":
@@ -464,17 +625,27 @@ if __name__ == "__main__":
         max_R = max_R * 1000. # should do some sensibility check here
         if max_R > 15e6: # disallow subsetting if max_R > 3/8 of a great circle circumference
             max_R = None
+    include_vertical = args.include_w
     geom_path = args.geom_path
     save_path = args.save_path
     save_dtype = DTYPES[args.save_dtype]
     calc_dtype = DTYPES[args.calc_dtype]
     force = args.force
     profile = args.profile
+    profiler = Profiler() if profile else None
     use_angular_weights = args.use_angular_weights
     nbins_fac = args.nbins_fac
     method = args.geometry_approx
     setup_logging(args.log_level)
-    date = "20160801"
+    write_buffer_mb = args.write_buffer_mb
+    write_buffer_bytes = int(write_buffer_mb * 1024**2)
+    pressure = args.pressure
+    time_index = args.time_index
+    velocity_file = args.velocity_file
+    outname_root = args.outname_root
+
+    if outname_root is None:
+        outname_root = Path(velocity_file).stem
 
     logger.info(
         "\n\n"
@@ -486,13 +657,17 @@ if __name__ == "__main__":
         "\n### CALCULATION INFO.\n"
         f"max_R = {(max_R if max_R is not None else RADIUS_EARTH * np.pi)/1e3:.6g} km\n"
         f"grid = {grid}\n" # to be deprecated -- user should just supply a uvw file
-        f"source_file = TO_BE_IMPLEMENTED\n"
+        f"source_file = {velocity_file}\n"
         f"geometry archive directory = {geom_path}\n"
         f"output directory = {save_path}\n"
+        f"outfile name root = {outname_root}\n"
         f"origin_latitude chunksize = {chunk_origin}\n"
         f"dtype (calculation) = {calc_dtype}\n"
         f"dtype (output) = {save_dtype}\n"
         f"force = {force}\n"
+        f"include_vertical = {include_vertical}\n"
+        f"pressure = {pressure} hPa\n"
+        f"time index = {time_index}"
     )
 
     # construct regular lat-lon grid
@@ -503,19 +678,77 @@ if __name__ == "__main__":
     chunk_lon = len(lons)
 
     # load geometry from Zarr store
-    ds_geom, distances, distance_edges, origin_lat_chunk_bounds, nbins = load_geometry(
-        geom_path, grid, chunk_origin, nlat=len(lats), nlon=len(lons), nbins_fac=nbins_fac
+    ds_geom, distances, distance_edges, origin_lat_chunk_bounds = load_geometry(
+        geom_path,
+        grid,
+        chunk_origin,
+        nlat=len(lats),
+        nlon=len(lons),
+        nbins_fac=nbins_fac
     )
 
     # load velocity field
-    u, v, u_fpath = load_velocity_field(
-        date=date, interp_lons=lons,
-        interp_lats=lats, return_fpath=True
+    ds_u = load_velocity_field(
+        velocity_file,
+        pressure,
+        time_index,
     )
+
+    # ensure grid consistency
+    # latitudes must match geometry exactly
+    if not np.allclose(
+            ds_u.latitude.values,
+            lats,
+    ):
+        raise ValueError(
+            f"Velocity file latitude coordinates do not match grid {grid}."
+        )
+
+    # longitudes must have same number of points with same uniform spacing as geometry
+    if len(ds_u.longitude) != len(lons):
+        raise ValueError(
+            f"Velocity file longitude coordinate length {len(ds_u.longitude)}, which "
+            f"does not match {grid} grid specification (length = {len(lons)}."
+        )
+    dlon = np.diff(ds_u.longitude.values)
+    if not np.allclose(
+            dlon,
+            dlon[0],
+    ):
+        raise ValueError(
+            "Velocity file longitude coordinate is not uniformly spaced."
+        )
+
+    if not np.isclose(
+            dlon[0],
+            lon_step,
+    ):
+        raise ValueError(
+            f"Velocity file longitude spacing ({dlon[0]}) does not match expected "
+            f"spacing ({lon_step})."
+        )
+
+    # extract velocity components
+    u = ds_u.u
+    v = ds_u.v
+    if include_vertical:
+        if "w" not in ds_u:
+            logger.error(
+                "--include-w specified but variable 'w' "
+                "not present in velocity file."
+            )
+            sys.exit(1)
+        w = ds_u.w
+    else:
+        w = None
+
+    # extract pressure and time values
+    pressure_value = ds_u.pressure.values
+    time_value = ds_u.time.values
 
     # create Zarr store for azimuthally-integrated delta u cubed
     if max_R is None:
-        maxR_str = ""
+        maxR_str = "_maxR_global"
     else:
         maxR_str = f"_maxR_{int(max_R/1e3):05d}"
     #endif
@@ -523,30 +756,44 @@ if __name__ == "__main__":
         method_str = f"_{method}"
     else:
         method_str = ""
+    time_str = np.datetime_as_string(
+        time_value,
+        unit="h"
+    ).replace("-", "").replace(":", "")
+
     du3_fpath = os.path.join(
         save_path,
-        f"glm.n1280_GAL9_DS_{date}T00_inter_scale_transfer_of_kinetic_energy_"
-        f"p0200hPa_{grid}{maxR_str}{method_str}.zarr"
+        f"{outname_root}"
+        f"_{grid}"
+        f"_delta_u_cubed"
+        f"_t{time_str}"
+        f"_p{int(pressure):04d}hPa"
+        f"{maxR_str}"
+        f"{method_str}.zarr"
+    )
+    logger.info(
+        f"\nOutput file = {du3_fpath}"
     )
     chunk_dist = -1
-    chunk_time = 1
-    chunk_pressure = 1
 
     if not os.path.exists(du3_fpath) or force:
+            
         du3_template = create_du_cubed_template(
+            pressure_value, time_value,
             distances, lats, lons,
             chunk_dist, chunk_lat, chunk_origin,
-            dtype=save_dtype
+            dtype=save_dtype,
+            include_vertical=include_vertical
         )
         du3_template.attrs.update(
             {
-                "source_file": os.path.basename(u_fpath),
+                "source_file": velocity_file,
                 "source_attributes": repr(u.attrs),
                 "lossett_version": LOSSETT_VN,
                 "run_command": " ".join(sys.argv),
                 "arguments": repr(vars(args)),
                 "history": f"{datetime.now(UTC).isoformat()}: "
-                "Created by compute_inter_scale_transfers_spherical.py"
+                "Created by compute_delta_u_cubed_spherical.py"
             }
         )
         du3_template.to_zarr(
@@ -556,10 +803,19 @@ if __name__ == "__main__":
             zarr_format=2,
         )
 
+        # initialise buffer for caching output before writing
+        output_batch = []
+        batch_nbytes = 0
+        batch_start = None
+        batch_end = None
+
         logger.info("\nEntering latitude loop")
         t0_global = time.perf_counter()
 
         for olat_chunk in origin_lat_chunk_bounds:
+            if profiler:
+                t0_lat_chunk = time.perf_counter()
+                
             lat_start = (
                 ds_geom
                 .origin_latitude
@@ -573,19 +829,26 @@ if __name__ == "__main__":
                 .values
             )
             logger.info(f"\n\nOrigin  latitudes {lat_start} -- {lat_end}")
+            
+            if profiler:
+                t0_geom = time.perf_counter()
+
             geom_chunk, active_indices = load_geometry_chunk(
                 ds_geom, olat_chunk, distance_edges, max_R=max_R
             )
-
-            t0_lat_chunk = time.perf_counter()
+            if profiler:
+                profiler.add(
+                    "geometry load",
+                    time.perf_counter() - t0_geom,
+                )
 
             du_cubed_ang_int =[]
             for ilon, olon in enumerate(origin_lons):
-                if profile:
-                    if ilon == 1:
-                        # allow Numba to compile on the first longitude
-                        prof = cProfile.Profile()
-                        prof.enable()
+                #if profile:
+                #    if ilon == 1:
+                #        # allow Numba to compile on the first longitude
+                #        prof = cProfile.Profile()
+                #        prof.enable()
                 logger.debug(f"\nOrigin longitude = {olon}")
                 du_cubed_ang_int.append(
                     process_origin_longitude(
@@ -598,52 +861,120 @@ if __name__ == "__main__":
                         dtype=calc_dtype,
                         use_angular_weights=use_angular_weights,
                         method=method,
+                        w=w,
+                        profiler=profiler,
                     )
                 )
-                if profile:
-                    if ilon == 1:
-                        prof.disable()
-                        stats = pstats.Stats(prof)
-                        stats.sort_stats("cumtime")
-                        stats.print_stats(50)
-                        sys.exit(1)
+                #if profile:
+                #    if ilon == 1:
+                #        prof.disable()
+                #        stats = pstats.Stats(prof)
+                #        stats.sort_stats("cumtime")
+                #        stats.print_stats(50)
+                #        sys.exit(1)
             #endfor
-            ds_out = xr.Dataset(
-                {
-                    "delta_u_cubed_angular_integral": xr.concat(
-                        du_cubed_ang_int,
-                        dim=xr.DataArray(
-                            origin_lons,
-                            dims="origin_longitude",
-                            name="origin_longitude"
-                        )
-                    )
-                }
+        
+            if profiler:
+                profiler.add(
+                    "origin lon loop",
+                    time.perf_counter() - t0_lat_chunk,
+                )
+
+            du_cubed_ang_int = xr.concat(
+                du_cubed_ang_int,
+                dim=xr.DataArray(
+                    origin_lons,
+                    dims="origin_longitude",
+                    name="origin_longitude"
+                )
             )
+            save_vars = {
+                "delta_u_cubed_angular_integral_longitudinal": (
+                    du_cubed_ang_int["delta_u_cubed_angular_integral_longitudinal"].dims,
+                    du_cubed_ang_int[
+                        "delta_u_cubed_angular_integral_longitudinal"
+                    ].data
+                )
+            }
+
+            if include_vertical:
+                save_vars["delta_u_cubed_angular_integral_vertical"] = (
+                    du_cubed_ang_int["delta_u_cubed_angular_integral_vertical"].dims,
+                    du_cubed_ang_int[
+                        "delta_u_cubed_angular_integral_vertical"
+                    ].data
+                )
+            
+            # create Dataset to write (just save data variables to avoid write errors)
+            ds_chunk = xr.Dataset(
+                save_vars
+            ).reset_coords(drop=True)
+
+            # memory buffer handling
+            if batch_start is None:
+                batch_start = olat_chunk[0]
+            batch_end = olat_chunk[1]
+            output_batch.append(ds_chunk)
+            batch_nbytes += ds_chunk.to_array().nbytes
             logger.info(
-                "\nTime computing du^3 angular integral: "
-                f"{time.perf_counter()-t0_lat_chunk:.6f}"
+                f"\nBuffered {batch_nbytes/1024**2:.1f} MiB"
             )
 
-            da = ds_out.delta_u_cubed_angular_integral.astype(save_dtype)
+            if batch_nbytes >= write_buffer_bytes:
+                if profiler:
+                    t0_write = time.perf_counter()
+                logger.info(
+                    "\nSaving output batch for origin_latitude indices "
+                    f"{batch_start} to {batch_end}"
+                )
+                write_origin_latitude_batch(
+                    output_batch,
+                    batch_start,
+                    batch_end,
+                    du3_fpath,
+                    save_dtype,
+                )
+
+                # reset batch variables
+                output_batch.clear()
+                batch_nbytes = 0
+                batch_start = None
+                batch_end = None
+                if profiler:
+                    profiler.add(
+                        "batch write",
+                        time.perf_counter() - t0_write,
+                    )
+            #endif
             
-            # save latitude chunk (just save the data variable to avoid write errors)
-            ds_write = xr.Dataset(
-                {
-                    "delta_u_cubed_angular_integral": (da.dims, da.data)
-                }
-            ).reset_coords(drop=True)
+            if profiler:
+                profiler.add(
+                    "total",
+                    time.perf_counter() - t0_lat_chunk
+                )
+                # print profiling
+                profiler.report(
+                    logger,
+                    total_key="total",
+                )
+                profiler.reset()
             
-            logger.info("\nSaving chunk")
-            ds_write.to_zarr(
-                du3_fpath,
-                region = {
-                    "origin_latitude": slice(*olat_chunk)
-                }
-            )
         #endfor
+        # Write any remaining data
+        if output_batch:
+            logger.info(
+                "\n\nSaving output batch for origin_latitude indices "
+                f"{batch_start} to {batch_end}"
+            )
+            write_origin_latitude_batch(
+                output_batch,
+                batch_start,
+                batch_end,
+                du3_fpath,
+                save_dtype,
+            )
         logger.info(
-            "\nTotal time in computation: "
+            "\n\nTotal time in computation: "
             f"{time.perf_counter()-t0_global:.6f}"
         )
 
