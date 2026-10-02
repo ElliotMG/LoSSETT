@@ -50,3 +50,9 @@ Alternatively:
    cd LoSSETT
    poetry install
    ```
+
+## Using this software
+
+If you use LoSSETT in a publication, please cite our article in Journal of the Atmospheric Sciences where we demonstrate the first use of LoSSETT to quantify interscale energy transfer in the tropical atmosphere:
+
+McKinnon-Gray, E., D. Shipley, J. Methven, T. H. A. Frame, C. Sanchez, A. McCabe, and N. M. Roberts, 2026: The representation of Convectively Coupled Equatorial Waves and upscale energy transfer in models with explicit and parametrized convection. _J. Atmos. Sci._, e250181, https://doi.org/10.1175/JAS-D-25-0181.1.
