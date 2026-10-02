@@ -1,302 +1,253 @@
-#!/usr/bin/env python3
-
+import time
 import numpy as np
-
-from lossett.calc.compute_delta_u_cubed_spherical import (
-    load_geometry,
-    load_velocity_field,
-    load_geometry_chunk,
-    GRID_DEFS,
-)
+import numexpr as ne
 
 from lossett.calc.field_increments import (
-    compute_delta_u_cubed,
-    compute_delta_u_cubed_numexpr,
+    compute_delta_u_cubed_NEW,
+    compute_delta_u_cubed_numexpr_NEW,
+    compute_delta_u_cubed_numexpr_FUSED,
 )
 
-from lossett.profiling import benchmark
+##############################################################################
+# USER SETTINGS
+##############################################################################
 
-import numexpr as ne
-EXPR_DUT = ne.NumExpr(
-    "u*sin_final + v*cos_final "
-    "- u0*sin_init - v0*cos_init"
-)
+DLAT = 1.0
+NCHUNK = 16
 
-EXPR_DUN = ne.NumExpr(
-    "u*cos_final - v*sin_final "
-    "- u0*cos_init + v0*sin_init"
-)
+NREP = 20
+NTRIAL = 5
 
-EXPR_DU3 = ne.NumExpr(
-    "du_t*(du_t*du_t + du_n*du_n)"
-)
-print(EXPR_DUT.input_names)
-print(EXPR_DUN.input_names)
-print(EXPR_DU3.input_names)
+NUMEXPR_THREADS = 16
 
-#
-# Configuration
-#
+##############################################################################
+# NUMEXPR CONFIG
+##############################################################################
 
-grid = "n1280"
-
-chunk_origin = 8
-nbins_fac = 2
-date = "20160801"
-
-n_repeats = 10
-
-geom_path = (
-    "/work/scratch-pw5/dship/upscale/LoSSETT/"
-    "spherical_geometry/"
-)
-
-#
-# Build analysis grid
-#
-
-lon_step, lat_step = GRID_DEFS[grid]
-
-lons = np.arange(-180., 180., lon_step)
-lats = np.arange(-90., 90. + lat_step/2, lat_step)
-
-#
-# Load geometry
-#
-
-(
-    ds_geom,
-    distances,
-    distance_edges,
-    origin_lat_chunk_bounds,
-    nbins,
-) = load_geometry(
-    geom_path,
-    grid,
-    chunk_origin,
-    nlat=len(lats),
-    nlon=len(lons),
-    nbins_fac=nbins_fac,
-)
-
-#
-# Load first chunk exactly as production does
-#
-
-olat_chunk = origin_lat_chunk_bounds[0]
-
-geom_chunk, active_indices = load_geometry_chunk(
-    ds_geom,
-    olat_chunk,
-    distance_edges,
-    max_R=None,
-)
-
-#
-# Load winds
-#
-
-u, v, _ = load_velocity_field(
-    date=date,
-    interp_lats=lats,
-    interp_lons=lons,
-)
-
-#
-# Choose one origin longitude
-#
-
-olon = float(lons[0])
-
-#
-# Reproduce process_origin_longitude()
-#
-
-lon_step = (
-    u.longitude.values[1]
-    - u.longitude.values[0]
-)
-
-lon_shift = int(
-    round(olon / lon_step)
-)
-
-u0 = u.sel(
-    latitude=geom_chunk.origin_latitude,
-    longitude=olon,
-    method="nearest",
-)
-
-v0 = v.sel(
-    latitude=geom_chunk.origin_latitude,
-    longitude=olon,
-    method="nearest",
-)
-
-u_roll = (
-    u.roll(
-        longitude=-lon_shift,
-        roll_coords=False,
-    )
-    .load()
-)
-
-v_roll = (
-    v.roll(
-        longitude=-lon_shift,
-        roll_coords=False,
-    )
-    .load()
-)
-
-#
-# Convert everything to NumPy
-#
-
-u_np = u_roll.values
-v_np = v_roll.values
-
-u0_np = u0.values[:, None, None]
-v0_np = v0.values[:, None, None]
-
-sin_init_np = (
-    geom_chunk
-    .sine_initial_bearing
-    .values
-)
-
-cos_init_np = (
-    geom_chunk
-    .cosine_initial_bearing
-    .values
-)
-
-sin_final_np = (
-    geom_chunk
-    .sine_final_bearing
-    .values
-)
-
-cos_final_np = (
-    geom_chunk
-    .cosine_final_bearing
-    .values
-)
-
-print("\nArray shapes")
-print("------------")
-print("u               ", u_np.shape)
-print("u0              ", u0_np.shape)
-print("sin_init        ", sin_init_np.shape)
-print("sin_final       ", sin_final_np.shape)
-print(u_np.dtype)
-print(sin_init_np.dtype)
-
-#
-# Verify correctness
-#
-
-du3_numpy = compute_delta_u_cubed(
-    u_np,
-    v_np,
-    u0_np,
-    v0_np,
-    sin_init_np,
-    cos_init_np,
-    sin_final_np,
-    cos_final_np,
-)
-
-du3_numexpr = compute_delta_u_cubed_numexpr(
-    u_np,
-    v_np,
-    u0_np,
-    v0_np,
-    sin_init_np,
-    cos_init_np,
-    sin_final_np,
-    cos_final_np,
-)
-
-print("\nValidation")
-print("----------")
+ne.set_num_threads(NUMEXPR_THREADS)
 
 print(
-    "max abs diff =",
-    np.nanmax(
-        np.abs(
-            du3_numpy
-            - du3_numexpr
+    f"NumExpr threads = {ne.get_num_threads()}"
+)
+
+##############################################################################
+# GRID
+##############################################################################
+
+nlat = int(180 / DLAT) + 1
+nlon = int(360 / DLAT)
+
+print(
+    f"nlat={nlat:,}, "
+    f"nlon={nlon:,}, "
+    f"nchunk={NCHUNK:,}, "
+    f"nrep={NREP}, "
+    f"ntrial={NTRIAL}"
+)
+
+##############################################################################
+# DATA
+##############################################################################
+
+rng = np.random.default_rng(1234)
+
+shape_geom = (
+    NCHUNK,
+    nlat,
+    nlon,
+)
+
+u = rng.standard_normal((nlat, nlon))
+v = rng.standard_normal((nlat, nlon))
+w = rng.standard_normal((nlat, nlon))
+
+u0 = rng.standard_normal((NCHUNK, 1, 1))
+v0 = rng.standard_normal((NCHUNK, 1, 1))
+w0 = rng.standard_normal((NCHUNK, 1, 1))
+
+sin_init = rng.standard_normal(shape_geom)
+cos_init = rng.standard_normal(shape_geom)
+
+sin_final = rng.standard_normal(shape_geom)
+cos_final = rng.standard_normal(shape_geom)
+
+##############################################################################
+# VALIDATION
+##############################################################################
+
+long_np, vert_np = compute_delta_u_cubed_NEW(
+    u, v,
+    u0, v0,
+    sin_init, cos_init,
+    sin_final, cos_final,
+    w=w, w0=w0,
+)
+
+long_ne, vert_ne = compute_delta_u_cubed_numexpr_NEW(
+    u, v,
+    u0, v0,
+    sin_init, cos_init,
+    sin_final, cos_final,
+    w=w, w0=w0,
+)
+
+long_fused, vert_fused = compute_delta_u_cubed_numexpr_FUSED(
+    u, v,
+    u0, v0,
+    sin_init, cos_init,
+    sin_final, cos_final,
+    w=w, w0=w0,
+)
+
+print()
+print(
+    "max abs diff NumPy vs NumExpr:",
+    np.max(np.abs(long_np - long_ne))
+)
+
+print(
+    "max abs diff NumPy vs Fused:",
+    np.max(np.abs(long_np - long_fused))
+)
+
+##############################################################################
+# WARMUP
+##############################################################################
+
+for _ in range(5):
+
+    compute_delta_u_cubed_NEW(
+        u, v,
+        u0, v0,
+        sin_init, cos_init,
+        sin_final, cos_final,
+        w=w, w0=w0,
+    )
+
+    compute_delta_u_cubed_numexpr_NEW(
+        u, v,
+        u0, v0,
+        sin_init, cos_init,
+        sin_final, cos_final,
+        w=w, w0=w0,
+    )
+
+    compute_delta_u_cubed_numexpr_FUSED(
+        u, v,
+        u0, v0,
+        sin_init, cos_init,
+        sin_final, cos_final,
+        w=w, w0=w0,
+    )
+
+##############################################################################
+# BENCHMARK
+##############################################################################
+
+def benchmark(func):
+
+    t0 = time.perf_counter()
+
+    checksum = 0.0
+
+    for _ in range(NREP):
+
+        long_, vert_ = func(
+            u, v,
+            u0, v0,
+            sin_init, cos_init,
+            sin_final, cos_final,
+            w=w,
+            w0=w0,
         )
+
+        checksum += float(long_[0, 0, 0])
+
+    elapsed = time.perf_counter() - t0
+
+    return elapsed / NREP, checksum
+
+##############################################################################
+# TRIALS
+##############################################################################
+
+numpy_times = []
+numexpr_times = []
+fused_times = []
+
+print()
+print("TRIAL RESULTS")
+print("-------------")
+
+for itrial in range(NTRIAL):
+
+    t_np, chk_np = benchmark(
+        compute_delta_u_cubed_NEW
     )
+
+    t_ne, chk_ne = benchmark(
+        compute_delta_u_cubed_numexpr_NEW
+    )
+
+    t_fused, chk_fused = benchmark(
+        compute_delta_u_cubed_numexpr_FUSED
+    )
+
+    numpy_times.append(t_np)
+    numexpr_times.append(t_ne)
+    fused_times.append(t_fused)
+
+    print(
+        f"Trial {itrial+1}: "
+        f"NumPy={t_np:.6f}s  "
+        f"NumExpr={t_ne:.6f}s  "
+        f"Fused={t_fused:.6f}s"
+    )
+
+##############################################################################
+# SUMMARY
+##############################################################################
+
+numpy_mean = np.mean(numpy_times)
+numpy_std = np.std(numpy_times)
+
+numexpr_mean = np.mean(numexpr_times)
+numexpr_std = np.std(numexpr_times)
+
+fused_mean = np.mean(fused_times)
+fused_std = np.std(fused_times)
+
+print()
+print("SUMMARY")
+print("-------")
+
+print(
+    f"NumPy        : "
+    f"{numpy_mean:.6f} ± {numpy_std:.6f} s/call"
 )
 
-diff = du3_numpy - du3_numexpr
-
-print("numpy dtype   :", du3_numpy.dtype)
-print("numexpr dtype :", du3_numexpr.dtype)
-
-print("min numpy :", np.nanmin(du3_numpy))
-print("max numpy :", np.nanmax(du3_numpy))
-
-print("min numexpr:", np.nanmin(du3_numexpr))
-print("max numexpr:", np.nanmax(du3_numexpr))
-
-idx = np.unravel_index(
-    np.nanargmax(np.abs(diff)),
-    diff.shape
+print(
+    f"NumExpr      : "
+    f"{numexpr_mean:.6f} ± {numexpr_std:.6f} s/call"
 )
 
-print("worst index:", idx)
+print(
+    f"NumExprFused : "
+    f"{fused_mean:.6f} ± {fused_std:.6f} s/call"
+)
 
-print("numpy value :", du3_numpy[idx])
-print("numexpr value:", du3_numexpr[idx])
-print("difference  :", diff[idx])
+print()
+print(
+    f"NumExpr speedup: "
+    f"{numpy_mean / numexpr_mean:.2f}x"
+)
 
-#
-# Benchmark
-#
+print(
+    f"Fused speedup: "
+    f"{numpy_mean / fused_mean:.2f}x"
+)
 
-for nthreads in [1,2,4,8,16]:
-    print(f"\nnthreads = {nthreads}")
-    numpy_time, numpy_init = benchmark(
-        compute_delta_u_cubed,
-        u_np,
-        v_np,
-        u0_np,
-        v0_np,
-        sin_init_np,
-        cos_init_np,
-        sin_final_np,
-        cos_final_np,
-        repeats=n_repeats,
-    )
-
-    numexpr_time, numexpr_init = benchmark(
-        compute_delta_u_cubed_numexpr,
-        u_np,
-        v_np,
-        u0_np,
-        v0_np,
-        sin_init_np,
-        cos_init_np,
-        sin_final_np,
-        cos_final_np,
-        repeats=n_repeats,
-    )
-
-    print("\nBenchmark")
-    print("---------")
-    
-    print(
-        f"numpy   : {numpy_time:.6e} s"
-    )
-    
-    print(
-        f"numexpr : {numexpr_time:.6e} s"
-    )
-    
-    print(
-        f"speedup : "
-        f"{numpy_time/numexpr_time:.2f}x"
-    )
+print(
+    f"Fused vs NumExpr: "
+    f"{numexpr_mean / fused_mean:.2f}x"
+)

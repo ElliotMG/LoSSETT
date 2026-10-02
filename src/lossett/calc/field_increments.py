@@ -28,12 +28,54 @@ EXPR_DUSQ = ne.NumExpr(
     "du_t*du_t + du_n*du_n + dw*dw"
 )
 
+EXPR_DUSQ_NO_W = ne.NumExpr(
+    "du_t*du_t + du_n*du_n"
+)
+
 EXPR_DU3_LONG = ne.NumExpr(
     "du_t * du_sq"
 )
 
 EXPR_DU3_VERT = ne.NumExpr(
     "dw * du_sq"
+)
+
+DU_T = (
+    "u*sin_final + v*cos_final "
+    "- u0*sin_init - v0*cos_init"
+)
+
+DU_N = (
+    "u*cos_final - v*sin_final "
+    "- u0*cos_init + v0*sin_init"
+)
+
+DW = "(w - w0)"
+
+DU_SQ = (
+    f"({DU_T})*({DU_T})"
+    f"+"
+    f"({DU_N})*({DU_N})"
+    f"+"
+    f"({DW})*({DW})"
+)
+
+DU_SQ_NO_W = (
+    f"({DU_T})*({DU_T})"
+    f"+"
+    f"({DU_N})*({DU_N})"
+)
+
+EXPR_DU3_LONG_FUSED = ne.NumExpr(
+    f"({DU_T})*({DU_SQ})"
+)
+
+EXPR_DU3_VERT_FUSED = ne.NumExpr(
+    f"({DW})*({DU_SQ})"
+)
+
+EXPR_DU3_LONG_FUSED_NO_W = ne.NumExpr(
+    f"({DU_T})*({DU_SQ_NO_W})"
 )
 
 def compute_delta_u_cubed(
@@ -63,6 +105,66 @@ def compute_delta_u_cubed(
     del du_n
     
     return du_cubed
+
+def compute_delta_u_cubed_hybrid(
+    u, v, u0, v0,
+    sin_init, cos_init,
+    sin_final, cos_final,
+    w=None, w0=None,
+):
+    if (w is None) != (w0 is None):
+        raise ValueError("Must provide both w and w0")
+    
+    # velocity increment tangent to geodesic ("longitudinal" part)
+    # EXPR_DUT REQUIRES INPUT IN THIS ORDER:
+    # 'cos_final', 'cos_init', 'sin_final', 'sin_init', 'u', 'u0', 'v', 'v0'
+    du_t = EXPR_DUT(
+        cos_final, cos_init,
+        sin_final, sin_init,
+        u, u0, v, v0
+    )
+    
+    # velocity increment normal to geodesic (horizontal "transverse" part)
+    # EXPR_DUN REQUIRES INPUT IN THIS ORDER:
+    # 'cos_final', 'cos_init', 'sin_final', 'sin_init', 'u', 'u0', 'v', 'v0'
+    du_n = EXPR_DUN(
+        cos_final, cos_init,
+        sin_final, sin_init,
+        u, u0, v, v0
+    )
+
+    if w is not None:
+        # vertical velocity increment (vertical "transverse" part)
+        dw = w - w0
+
+        # (delta u)^2
+        du_sq = EXPR_DUSQ(
+            du_n, du_t, dw
+        )
+
+        # longitudinal third-order velocity increment
+        du_cubed_long = (
+            du_t * du_sq
+        )
+
+        # vertical transverse third-order velocity increment
+        du_cubed_vert = (
+            dw * du_sq
+        )
+    
+        return du_cubed_long, du_cubed_vert
+    else:
+        # (delta u)^2
+        du_sq = EXPR_DUSQ_NO_W(
+            du_n, du_t
+        )
+
+        # longitudinal third-order velocity increment
+        du_cubed_long = (
+            du_t * du_sq
+        )
+    
+        return du_cubed_long, None
 
 def compute_delta_u_cubed_NEW(
     u, v, u0, v0,
@@ -163,6 +265,80 @@ def compute_delta_u_cubed_numexpr_NEW(
             du_n, du_t
         )
         return du_cubed, None
+
+
+def compute_delta_u_cubed_numexpr_FUSED(
+    u, v, u0, v0,
+    sin_init, cos_init,
+    sin_final, cos_final,
+    w=None, w0=None,
+):
+    if w is not None:
+        INPUT_ORDER = (
+            "cos_final",
+            "cos_init",
+            "sin_final",
+            "sin_init",
+            "u",
+            "u0",
+            "v",
+            "v0",
+            "w",
+            "w0",
+        )
+
+        assert EXPR_DU3_LONG_FUSED.input_names == INPUT_ORDER
+
+        du_cubed_long = EXPR_DU3_LONG_FUSED(
+            cos_final,
+            cos_init,
+            sin_final,
+            sin_init,
+            u,
+            u0,
+            v,
+            v0,
+            w,
+            w0
+        )
+        du_cubed_vert = EXPR_DU3_VERT_FUSED(
+            cos_final,
+            cos_init,
+            sin_final,
+            sin_init,
+            u,
+            u0,
+            v,
+            v0,
+            w,
+            w0
+        )
+        return du_cubed_long, du_cubed_vert
+    else:
+        INPUT_ORDER = (
+            "cos_final",
+            "cos_init",
+            "sin_final",
+            "sin_init",
+            "u",
+            "u0",
+            "v",
+            "v0",
+        )
+
+        assert EXPR_DU3_LONG_FUSED.input_order == INPUT_ORDER
+
+        du_cubed_long = EXPR_DU3_LONG_FUSED_NO_W(
+            cos_final,
+            cos_init,
+            sin_final,
+            sin_init,
+            u,
+            u0,
+            v,
+            v0,
+        )
+        return du_cubed_long, None
 
 def compute_delta_u_cubed_numexpr(
     u, v, u0, v0,
@@ -393,8 +569,9 @@ def compute_du3_angular_integral_global(
     if profiler:
         t0_du3 = time.perf_counter()
     # compute du_cubed
+    du_cubed_long, du_cubed_vert = compute_delta_u_cubed_hybrid(
     #du_cubed_long, du_cubed_vert = compute_delta_u_cubed_NEW(
-    du_cubed_long, du_cubed_vert = compute_delta_u_cubed_numexpr_NEW(
+    #du_cubed_long, du_cubed_vert = compute_delta_u_cubed_numexpr_NEW(
     #du_cubed = compute_delta_u_cubed_numexpr(
         u.values,
         v.values,
@@ -443,29 +620,60 @@ def compute_du3_angular_integral_global(
     #endif
     
     for i in range(chunk_len):
+        if profiler:
+            t0_read = time.perf_counter()
         weights = weights_cache[i] if use_angular_weights else None
         
         du3_long = du_cubed_long[i,:,:].ravel()
-        
+        if profiler:
+            profiler.add(
+                "angular integral: integral by distance bin (read)",
+                time.perf_counter() - t0_read
+            )
+
+        if profiler:
+            t0_integrate = time.perf_counter()
         integrals_long[i] = angular_integral_by_distance_bin(
             du3_long,
             bins_cache[i],
             nbins,
             weights=weights,
+            profiler=profiler,
         )
+        if profiler:
+            profiler.add(
+                "angular integral: integral by distance bin (integrate)",
+                time.perf_counter() - t0_integrate
+            )
         if w is not None:
+            if profiler:
+                t0_read = time.perf_counter()
             du3_vert = du_cubed_vert[i,:,:].ravel()
+            if profiler:
+                profiler.add(
+                    "angular integral: integral by distance bin (read)",
+                    time.perf_counter() - t0_read
+                )
+
+            if profiler:
+                t0_integrate = time.perf_counter()
             integrals_vert[i] = angular_integral_by_distance_bin(
                 du3_vert,
                 bins_cache[i],
                 nbins,
                 weights=weights,
+                profiler=profiler,
             )
+            if profiler:
+                profiler.add(
+                    "angular integral: integral by distance bin (integrate)",
+                    time.perf_counter() - t0_integrate
+                )
         #endif
     #endfor
     if profiler:
         profiler.add(
-            "angular integral: integral by distance bin",
+            "angular integral: integral by distance bin total",
             time.perf_counter() - t0_integral
         )
         

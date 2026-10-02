@@ -1,5 +1,6 @@
 import numpy as np
 from numba import njit
+import time
 
 def voronoi_widths_periodic(chi):
     """
@@ -54,7 +55,7 @@ def angular_integral_weighted_numba(
 
         val = integrand[i]
 
-        if not np.isnan(val):
+        if np.isfinite(val):
             out[bins[i]] += val * weights[i]
 
     return out
@@ -76,7 +77,7 @@ def angular_integral_unweighted_numba(
 
         val = integrand[i]
 
-        if not np.isnan(val):
+        if np.isfinite(val):
             sum_bin[b] += val
 
     out = np.empty(nbins, dtype=np.float64)
@@ -98,6 +99,7 @@ def angular_integral_by_distance_bin(
     bins,
     nbins,
     weights=None,
+    profiler=None,
 ):
     """
     Compute angular integral for a single origin latitude.
@@ -145,45 +147,52 @@ def angular_integral_by_distance_bin(
                 "weights and integrand must have the same shape!"
             )
 
-    valid = np.isfinite(integrand)
+    if profiler:
+        t0_isfinite = time.perf_counter()
+    #valid = np.isfinite(integrand)
+    #n_valid = np.count_nonzero(valid)
+    frac_valid = 1.0#n_valid / valid.size
+    if profiler:
+        profiler.add(
+            "angular integration: int. by distance bin (isfinite)",
+            time.perf_counter() - t0_isfinite
+        )
 
-    integrand = integrand[valid]
-    bins_valid = bins[valid]
+    if profiler:
+        t0_mask = time.perf_counter()
 
+    # only mask if necessary! (actually handled by Numba kernel so may be able to remove entirely...)
+    if frac_valid < 0.99:
+        integrand = integrand[valid]
+        bins = bins[valid]
+
+        if weights is not None:
+            weights = weights[valid]
+    if profiler:
+        profiler.add(
+            "angular integration: int. by distance bin (mask invalid)",
+            time.perf_counter() - t0_mask
+        )
+    
+    if profiler:
+        t0_integrate = time.perf_counter()
     if weights is not None:
-
-        weights = weights[valid]
-
-        return angular_integral_weighted_numba(
+        result = angular_integral_weighted_numba(
             integrand,
-            bins_valid,
+            bins,
             nbins,
             weights,
         )
-        #return bin_integrate(
-        #    integrand,
-        #    bins_valid,
-        #    nbins,
-        #    weights=weights,
-        #)
-
     else:
-        #n_total = np.bincount(
-        #    bins,
-        #    minlength=nbins,
-        #)
-        #return np.divide(
-        #    2*np.pi * bin_integrate(
-        #        integrand,
-        #        bins_valid,
-        #        nbins,
-        #    ),
-        #    n_total,
-        #    out=np.full(nbins, np.nan),
-        #    where=n_total > 0,
-        #)
-        return angular_integral_unweighted_numba(
+        result = angular_integral_unweighted_numba(
             integrand,
-            bins_valid,
+            bins,
             nbins,
         )
+    if profiler:
+        profiler.add(
+            "angular integration: int. by distance bin (numba integrate)",
+            time.perf_counter() - t0_integrate
+        )
+
+    return result
