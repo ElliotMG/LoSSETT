@@ -4,6 +4,7 @@ import xarray as xr
 import numpy as np
 import matplotlib.pyplot as plt
 import cartopy as cpy
+import os
 
 from lossett.filtering.get_integration_kernels import get_integration_kernels
 from lossett.filtering.integration import integrate_over_scales
@@ -40,6 +41,14 @@ length_scale_sets = {
         [110,220,330,440,550,660,800,1000,1250,1600,2000,2500,3200,4000,5000,6400,8000,10000],
         dtype=np.float32
     ),
+    "0p5deg": np.array(
+        [55,110,220,330,440,550,660,800,1000,1250,1600,2000,2500,3200,4000,5000,6400,8000,10000],
+        dtype=np.float32
+    ),
+    "0p25deg": np.array(
+        [28,55,110,220,330,440,550,660,800,1000,1250,1600,2000,2500,3200,4000,5000,6400,8000,10000],
+        dtype=np.float32
+    ),
     "n320": np.array(
         [64,128,200,250,320,400,500,640,800,1000,1250,1600,2000,2500,3200,4000,5000,6400,8000,10000],
         dtype=np.float32
@@ -67,8 +76,9 @@ length_scale_sets = {
 }
 
 def compute_inter_scale_kinetic_energy_transfer(
-    du3,
+    du3_long,
     length_scales,
+    du3_vert=None,
     ratio_rmax_to_ell=None,
     ratio_L_to_ell=None,
     norm_factor=KE_TRANSFER_NORMALIZATION
@@ -79,7 +89,7 @@ def compute_inter_scale_kinetic_energy_transfer(
     of the kernel, and its internal length scale parameter.
     """
 
-    r = du3.r
+    r = du3_long.r
 
     ds_kernel = get_integration_kernels(
         r.values,
@@ -98,32 +108,70 @@ def compute_inter_scale_kinetic_energy_transfer(
     if ratio_L_to_ell is None:
         ratio_L_to_ell = kernel_props["ratio_L_to_ell"]
 
-    DL_u = (
+    DL_u_long = (
         integrate_over_scales(
-            du3,
+            du3_long,
             dG_dr * dG_dr.r,
             ratio_rmax_to_ell=ratio_rmax_to_ell,
             scale_dim="length_scale",
             radial_dim="r",
         )
         * norm_factor
-    )
+    ).rename("DL_u_longitudinal")
 
-    DL_u = DL_u.assign_coords(
+    DL_u_long = DL_u_long.assign_coords(
         {
             "L":
-            DL_u.length_scale
+            DL_u_long.length_scale
             * ratio_L_to_ell
         }
     )
 
-    DL_u.attrs.update(
+    DL_u_long.attrs.update(
         {
             "kernel_properties": kernel_props,
             "ratio_physical_to_kernel_length_scale": ratio_L_to_ell,
-            "units": "m2 s-3"
+            "units": "m2 s-3",
+            "long_name": "longitudinal part of D_L(u)",
         }
     )
+
+    DL_u = DL_u_long.to_dataset()
+
+    if du3_vert is not None:
+        G = ds_kernel.G
+        
+        DL_u_vert = - (
+            integrate_over_scales(
+                du3_vert,
+                G * G.r,
+                ratio_rmax_to_ell=ratio_rmax_to_ell,
+                scale_dim="length_scale",
+                radial_dim="r",
+            )
+            * norm_factor
+        ).rename("DL_u_vert_transverse_times_dz")
+        
+        DL_u_vert = DL_u_long.assign_coords(
+            {
+                "L":
+                DL_u_vert.length_scale
+                * ratio_L_to_ell
+            }
+        )
+        
+        DL_u_vert.attrs.update(
+            {
+                "kernel_properties": kernel_props,
+                "ratio_physical_to_kernel_length_scale": ratio_L_to_ell,
+                "units": "m3 s-3",
+                "long_name": "\int G_L dw |du|^2 dr",
+                "description": "\int G_L dw |du|^2 dr [for computing vertical "\
+                "transverse part of D_L(u)]",
+            }
+        )
+
+        DL_u["DL_u_vert_transverse_times_dz"] = DL_u_vert
 
     DL_u = DL_u.swap_dims(
         {"length_scale": "L"}
@@ -137,37 +185,237 @@ def compute_inter_scale_kinetic_energy_transfer(
     )
     return DL_u
 
+def rho_US_SA(p):
+    # p must be in hPa!
+
+    # constants
+    p0 = 1013.25 # hPa
+    rho0 = 1.225 # kg m-3
+    T0 = 288.15 # K
+    T_strat = 216.65 # K
+    p_strat = 226.32 # hPa
+    R = 287.053 # J kg-1 K-1
+
+    rho = []
+    
+    for plev in p:
+        if plev >= p_strat:
+            _rho = rho0 * (plev / p0)**(0.8097)
+        else:
+            _rho = (
+                plev * 100 #  convert to Pa
+                /
+                (R * T_strat)
+            )
+        rho.append(_rho)
+
+    print(rho)
+    rho = np.array(rho)
+    print(rho)
+
+    rho = xr.DataArray(
+        rho,
+        coords={"pressure": p},
+        dims="pressure",
+        attrs={
+            "name": "rho",
+            "long_name": "density",
+            "units": "kg m-3",
+            "description": "1976 US Standard Atmosphere density"
+        }
+    )
+
+    rho.pressure.attrs.update({"units": "hPa"})
+    return rho
+
 if __name__ == "__main__":
     date = "20160801"
+    hour = 0
+    time_str = f"{date}T{hour:02d}"
     #grid="2p5deg"
     #grid="1p0deg"
-    grid = "n320"
+    grid="0p5deg"
+    #grid="0p25deg"
+    #grid = "n320"
     #grid = "n320_maxR_5000"
     #grid = "n640_maxR_5000"
     #grid = "n1280_maxR_2000"
-    fpath = fpaths[grid].replace("DATE", date)
-    ds = xr.open_zarr(fpath)
 
-    du3 = ds.delta_u_cubed_angular_integral.rename({"great_circle_distance":"r"})
+    save_path = "/work/scratch-pw5/dship/upscale/LoSSETT/spherical_geometry/"
+    outname_root = "glm.n1280_GAL9"
+    method_str = ""
+    maxR_str = "_maxR_global"
 
-    r = du3.r
+    p = np.array([100,150,200,250,300,400,500,600,700,850,925])
+    #p = np.array([200,850])
+    g = 9.81 # m s-2
+    rho = rho_US_SA(p)
+
+    ds_du3 = xr.open_mfdataset(
+        [
+            os.path.join(
+                save_path,
+                f"{outname_root}"
+                f"_{grid}"
+                f"_delta_u_cubed"
+                f"_t{time_str}"
+                f"_p{int(pressure):04d}hPa"
+                f"{maxR_str}"
+                f"{method_str}.zarr"
+            ) for pressure in p
+        ],
+        combine="nested",
+        concat_dim="pressure",
+        engine="zarr"
+    ).rename({"great_circle_distance":"r"})
+
+    r = ds_du3.r
     print("\n\n\n",r,"\n\n\n")
     length_scales = length_scale_sets[grid]*1000.
 
     DL_u = compute_inter_scale_kinetic_energy_transfer(
-        du3,
+        ds_du3.delta_u_cubed_angular_integral_longitudinal,
         length_scales,
+        du3_vert=ds_du3.delta_u_cubed_angular_integral_vertical,
         ratio_rmax_to_ell=None,
         ratio_L_to_ell=None,
     )
     
     print("\n\n\n",DL_u,"\n\n\n")
+    DL_u_vert = (
+        rho * g * DL_u.DL_u_vert_transverse_times_dz.chunk(
+            chunks={"pressure":len(p)}
+        ).differentiate("pressure")
+        *
+        1 / 100 # convert pressure from hPa to Pa
+    ).rename("DL_u_vert_transverse")
+    DL_u_vert.attrs = DL_u.DL_u_vert_transverse_times_dz.attrs
+    DL_u_vert.attrs.update(
+        {
+            "units": "m2 s-3",
+            "long_name": "transverse vertical part of D_L(u)",
+        }
+    )
+    DL_u["DL_u_vert_transverse"] = DL_u_vert.chunk(chunks={"pressure":len(p)})
 
-    mag=1e-3
+    DL_u_zonal_mean = DL_u.mean("longitude")
+
+    # PLOTS
+    mag=5e-4
     cmap="RdBu_r"
     projection = cpy.crs.Robinson()
 
-    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(20,10), subplot_kw={"projection":projection})
+    fig, axes = plt.subplots(
+        nrows=2,
+        ncols=1,
+        figsize=(20,10),
+        sharex=True,
+        sharey=True,
+    )
+    ax=axes[0]
+    DL_u_zonal_mean.DL_u_longitudinal.sel(
+        L=5000*1e3,
+        method="nearest"
+    ).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+    )
+    ax=axes[1]
+    DL_u_zonal_mean.DL_u_vert_transverse.sel(
+        L=5000*1e3,
+        method="nearest"
+    ).plot.pcolormesh(
+        ax=ax,
+        vmin=-1e-3*mag,
+        vmax=1e-3*mag,
+        cmap=cmap,
+    )
+    for ax in axes:
+        ax.grid()
+        ax.set_yscale("log")
+        ax.yaxis.set_inverted(True)
+    plt.show()
+    sys.exit(1)
+
+    # plot hor & vert parts for L = 500, L = 1000 km
+    fig, axes = plt.subplots(
+        nrows=2,
+        ncols=2,
+        figsize=(20,10),
+        subplot_kw={"projection":projection}
+    )
+    ax = axes[0,0]
+    DL_u.DL_u_vert_transverse.sel(
+        L=500*1e3,
+        method="nearest"
+    ).sel(
+        pressure=200,
+        method="nearest",
+    ).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    ax = axes[0,1]
+    DL_u.DL_u_longitudinal.sel(
+        L=500*1e3,
+        method="nearest"
+    ).sel(
+        pressure=200,
+        method="nearest",
+    ).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    ax = axes[1,0]
+    DL_u.DL_u_vert_transverse.sel(
+        L=1000*1e3,
+        method="nearest"
+    ).sel(
+        pressure=200,
+        method="nearest",
+    ).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    ax = axes[1,1]
+    DL_u.DL_u_longitudinal.sel(
+        L=1000*1e3,
+        method="nearest"
+    ).sel(
+        pressure=200,
+        method="nearest",
+    ).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    for ax in axes.flatten():
+        ax.coastlines()
+        ax.grid()
+
+    plt.show()
+    
+    sys.exit(1)
+
+    fig, axes = plt.subplots(
+        nrows=2,
+        ncols=2,
+        figsize=(20,10),
+        subplot_kw={"projection":projection}
+    )
     ax = axes[0,0]
     DL_u.isel(L=0).plot.pcolormesh(
         ax=ax,

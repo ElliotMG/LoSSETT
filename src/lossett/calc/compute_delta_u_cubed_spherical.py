@@ -427,8 +427,8 @@ def load_geometry_chunk(ds_geom, olat_chunk, distance_edges, max_R=None, profile
         )
     return geom_chunk, active_indices
 
-def process_origin_longitude(
-    olon,
+def process_origin_longitudes(
+    olon_block,
     u,
     v,
     geom_chunk,
@@ -478,6 +478,9 @@ def process_origin_longitude(
     Dimensions: (origin_longitude, origin_latitude,
          great_circle_distance)
     """
+
+    assert len(olon_block) == 1
+    olon = olon_block[0]
 
     nbins = len(distances)
     lon_step = u.longitude.values[1] - u.longitude.values[0]
@@ -567,27 +570,40 @@ def process_origin_longitude(
             time.perf_counter() - t0_ang_int
         )
 
+    if len(du_cubed_ang_int_long.shape) == 2:
+        du_cubed_ang_int_long = du_cubed_ang_int_long[None,:,:]
+
     ds = xr.Dataset(
         data_vars = {
             "delta_u_cubed_angular_integral_longitudinal": (
-                ("origin_latitude","great_circle_distance"),
+                (
+                    "origin_longitude",
+                    "origin_latitude",
+                    "great_circle_distance"
+                ),
                 du_cubed_ang_int_long,
             ),
         },
         coords={
+            "origin_longitude": olon_block,
             "origin_latitude": geom_chunk.origin_latitude,
             "great_circle_distance": distances,
         },
     )
     if du_cubed_ang_int_vert is not None:
+        if len(du_cubed_ang_int_vert.shape) == 2:
+            du_cubed_ang_int_vert = du_cubed_ang_int_vert[None,:,:]
+            
         ds["delta_u_cubed_angular_integral_vertical"] = (
-            ("origin_latitude","great_circle_distance"),
+            (
+                "origin_longitude",
+                "origin_latitude",
+                "great_circle_distance"
+            ),
             du_cubed_ang_int_vert,
         )
     
-    return ds.expand_dims(
-        origin_longitude=[olon]
-    )
+    return ds
 
 def write_origin_latitude_batch(
     batch,
@@ -843,16 +859,31 @@ if __name__ == "__main__":
                 )
 
             du_cubed_ang_int =[]
-            for ilon, olon in enumerate(origin_lons):
+            du_cubed_ang_int = []
+
+            origin_lon_blocksize=1
+            for istart in range(
+                    0,
+                    len(origin_lons),
+                    origin_lon_blocksize,
+            ):
+
+                olon_block = origin_lons[
+                    istart : istart + origin_lon_blocksize
+                ]
+
+            #for ilon, olon in enumerate(origin_lons):
                 #if profile:
                 #    if ilon == 1:
                 #        # allow Numba to compile on the first longitude
                 #        prof = cProfile.Profile()
                 #        prof.enable()
-                logger.debug(f"\nOrigin longitude = {olon}")
+                logger.debug(
+                    f"\nOrigin longitude block = {olon_block[0]}--{olon_block[-1]}"
+                )
                 du_cubed_ang_int.append(
-                    process_origin_longitude(
-                        olon,
+                    process_origin_longitudes(
+                        olon_block,
                         u,
                         v,
                         geom_chunk,
@@ -882,11 +913,7 @@ if __name__ == "__main__":
 
             du_cubed_ang_int = xr.concat(
                 du_cubed_ang_int,
-                dim=xr.DataArray(
-                    origin_lons,
-                    dims="origin_longitude",
-                    name="origin_longitude"
-                )
+                dim="origin_longitude",
             )
             save_vars = {
                 "delta_u_cubed_angular_integral_longitudinal": (
