@@ -23,6 +23,10 @@ Within `src`:
 * `lossett/calc` contains the core computational routines for calculating inter-scale energy transfers.
 * `lossett/filtering` contains utilities for filtering and integration.
 
+The standalone Julia port of the 2-D kinetic-energy transfer core, including
+installation instructions and the ANCIL tutorial interface, is in
+[`Julia/README.md`](Julia/README.md).
+
 ## Prerequisites
 Current distribution of python (Python 3) - built with `xarray` and `numpy`. See `pyproject.toml` for full list of requirements.
 

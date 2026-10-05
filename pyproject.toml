@@ -17,8 +17,14 @@ dependencies = [
     "psutil",
     "matplotlib"
 ]
+optional-dependencies = { julia = ["juliacall>=0.9"] }
 packages = [
     { include = "lossett" },
+]
+
+[tool.poetry]
+include = [
+    { path = "src/lossett/_julia/LoSSETT.jl", format = ["sdist", "wheel"] },
 ]
 
 [project.urls]
