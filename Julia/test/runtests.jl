@@ -27,6 +27,144 @@ using Test
         @test result.radii == [0.0, 1.0]
     end
 
+    @testset "Spherical LoSSETT geometry" begin
+        earth_radius = 6_371_000.0
+
+        @testset "great-circle references and Cartesian limit" begin
+            one_degree = deg2rad(1.0)
+            distance, sin_initial, cos_initial, sin_final, cos_final =
+                LoSSETT._great_circle_geometry(0.0, 0.0, one_degree, earth_radius)
+            @test distance ≈ earth_radius * one_degree rtol=1e-13
+            @test atan(sin_initial, cos_initial) ≈ π / 2 atol=1e-13
+            @test atan(sin_final, cos_final) ≈ π / 2 atol=1e-13
+
+            north_distance, north_sin, north_cos, _, _ =
+                LoSSETT._great_circle_geometry(0.0, one_degree, 0.0, earth_radius)
+            @test north_distance ≈ earth_radius * one_degree rtol=1e-13
+            @test atan(north_sin, north_cos) ≈ 0.0 atol=1e-13
+
+            latitude0 = deg2rad(40.0)
+            delta_latitude = deg2rad(1e-5)
+            delta_longitude = deg2rad(2e-5)
+            distance, sin_bearing, cos_bearing, _, _ =
+                LoSSETT._great_circle_geometry(
+                    latitude0, latitude0 + delta_latitude,
+                    delta_longitude, earth_radius,
+                )
+            east = earth_radius * cos(latitude0) * delta_longitude
+            north = earth_radius * delta_latitude
+            @test distance ≈ hypot(east, north) rtol=1e-9
+            @test atan(sin_bearing, cos_bearing) ≈ atan(east, north) atol=1e-9
+
+            seam_distance, seam_sin, seam_cos, _, _ =
+                LoSSETT._great_circle_geometry(
+                    0.0, 0.0, deg2rad(358.0), earth_radius,
+                )
+            @test seam_distance ≈ earth_radius * deg2rad(2.0) rtol=1e-13
+            @test atan(seam_sin, seam_cos) ≈ -π / 2 atol=1e-13
+            _, anti_sin, _, _, _ =
+                LoSSETT._great_circle_geometry(0.0, 0.0, π, earth_radius)
+            @test isnan(anti_sin)
+            pole_distance, pole_sin, _, _, _ =
+                LoSSETT._great_circle_geometry(
+                    π / 2, π / 2, π / 2, earth_radius,
+                )
+            @test pole_distance ≈ 0.0 atol=1e-8
+            @test isnan(pole_sin)
+        end
+
+        @testset "spherical area measure and mollifier normalization" begin
+            @test LoSSETT._spherical_area_jacobian(0.0, earth_radius) == 0.0
+            @test LoSSETT._spherical_area_jacobian(π * earth_radius / 2, earth_radius) ≈ earth_radius
+            @test LoSSETT._spherical_area_jacobian(1.0, earth_radius) ≈ 1.0 rtol=1e-14
+
+            radii = collect(range(0.0, 2_000.0; length=2_001))
+            ell = 500.0
+            normalization, _, jacobian =
+                LoSSETT._spherical_mollifier(radii, ell, earth_radius)
+            raw = [LoSSETT._mollifier(r, ell) for r in radii]
+            @test 2π * LoSSETT._trapz(jacobian .* raw .* normalization, radii) ≈ 1.0 rtol=1e-12
+            @test LoSSETT._spherical_angular_integral(
+                ones(8), collect(range(0.0; step=π / 4, length=8)), true,
+            ) ≈ 2π rtol=1e-12
+        end
+
+        @testset "spherical entry point, dimensions, and boundaries" begin
+            longitude = collect(-0.02:0.01:0.02)
+            latitude = collect(-0.02:0.01:0.02)
+            u = zeros(5, 5)
+            v = zeros(5, 5)
+            w = zeros(5, 5)
+            grid_step = earth_radius * deg2rad(0.01)
+            result = kinetic_energy_transfer(
+                u, v, w, longitude, latitude, [grid_step];
+                max_radius=2.5 * grid_step, geometry=:spherical,
+            )
+            @test size(result.transfer) == (1, 5, 5)
+            @test result.length_scales == [grid_step]
+            @test all(iszero, result.transfer)
+            @test first(result.radii) > 0
+
+            local_longitude = [-0.01, 0.0, 0.01]
+            local_latitude = [-0.01, 0.0, 0.01]
+            eastward = repeat(reshape([-1.0, 0.0, 1.0], 1, 3), 3, 1)
+            northward = repeat(reshape([-1.0, 0.0, 1.0], 3, 1), 1, 3)
+            direct = kinetic_energy_transfer(
+                eastward, northward, zeros(3, 3),
+                local_longitude, local_latitude, [grid_step];
+                max_radius=2.5 * grid_step, geometry=:spherical,
+            )
+            expected_radii = direct.radii
+            radial_step = expected_radii[2] - expected_radii[1]
+            angular_values = [Float64[] for _ in expected_radii]
+            for iy in 1:3, ix in 1:3
+                (iy == 2 && ix == 2) && continue
+                distance, sin_initial, cos_initial, sin_final, cos_final =
+                    LoSSETT._great_circle_geometry(
+                        0.0, deg2rad(local_latitude[iy]),
+                        deg2rad(local_longitude[ix]), earth_radius,
+                    )
+                bin = floor(Int, distance / radial_step) + 1
+                du_t = eastward[iy, ix] * sin_final +
+                       northward[iy, ix] * cos_final
+                du_n = eastward[iy, ix] * cos_final -
+                       northward[iy, ix] * sin_final
+                push!(angular_values[bin], du_t * (du_t^2 + du_n^2))
+            end
+            expected_angular = [
+                isempty(values) ? 0.0 : 2π * sum(values) / length(values)
+                for values in angular_values
+            ]
+            _, derivative, jacobian =
+                LoSSETT._spherical_mollifier(expected_radii, grid_step, earth_radius)
+            expected_transfer =
+                LoSSETT._trapz(derivative .* jacobian .* expected_angular, expected_radii) / 4
+            @test direct.transfer[1, 2, 2] ≈ expected_transfer rtol=1e-12
+
+            batched = kinetic_energy_transfer(
+                zeros(2, 5, 5), zeros(2, 5, 5), zeros(2, 5, 5),
+                longitude, latitude, [grid_step];
+                max_radius=2.5 * grid_step, geometry="spherical",
+                xdim=3, ydim=2,
+            )
+            @test size(batched.transfer) == (1, 2, 5, 5)
+            @test all(iszero, batched.transfer)
+
+            @test_throws ArgumentError kinetic_energy_transfer(
+                u, v, w, longitude, latitude, [grid_step];
+                max_radius=π * earth_radius + 1, geometry=:spherical,
+            )
+            @test_throws ArgumentError kinetic_energy_transfer(
+                u, v, w, longitude, [0.0, 0.01, 90.01, 90.02, 90.03], [grid_step];
+                max_radius=2.5 * grid_step, geometry=:spherical,
+            )
+            @test_throws ArgumentError kinetic_energy_transfer(
+                u, v, w, [-180.0, -90.0, 0.0, 90.0, 180.0], latitude, [grid_step];
+                max_radius=2.5 * grid_step, geometry=:spherical,
+            )
+        end
+    end
+
     @testset "dimensions, clipping, and constant-flow invariance" begin
         x = collect(0.0:1.0:4.0)
         y = collect(0.0:1.0:4.0)

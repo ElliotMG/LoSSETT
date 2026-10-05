@@ -2,6 +2,8 @@ module LoSSETT
 
 export kinetic_energy_transfer
 
+const _DEFAULT_SPHERE_RADIUS = 6_371_000.0
+
 function _trapz(values, coordinates)
     length(values) == length(coordinates) || throw(ArgumentError("values and coordinates must have equal lengths"))
     length(values) < 2 && return 0.0
@@ -22,6 +24,78 @@ function _mollifier_derivative(r, ell, normalization)
     return -normalization * (r / (2ell^2)) * exp(-1 / q) / q^2
 end
 
+_spherical_area_jacobian(r, sphere_radius) =
+    sphere_radius * sin(r / sphere_radius)
+
+function _great_circle_geometry(lat0, lat, delta_lon, sphere_radius)
+    sin_lat0, cos_lat0 = sincos(lat0)
+    sin_lat, cos_lat = sincos(lat)
+    sin_half_lat = sin((lat - lat0) / 2)
+    sin_half_lon = sin(delta_lon / 2)
+    haversine = clamp(
+        sin_half_lat^2 + cos_lat0 * cos_lat * sin_half_lon^2,
+        0.0, 1.0,
+    )
+    distance = 2 * sphere_radius * atan(sqrt(haversine), sqrt(1 - haversine))
+
+    sin_lon, cos_lon = sincos(delta_lon)
+    yi = sin_lon * cos_lat
+    xi = cos_lat0 * sin_lat - sin_lat0 * cos_lat * cos_lon
+    bearing_norm = hypot(xi, yi)
+    bearing_norm > 32eps(Float64) ||
+        return (distance, NaN, NaN, NaN, NaN)
+
+    sin_initial, cos_initial = yi / bearing_norm, xi / bearing_norm
+    sin_final = sin_lon * cos_lat0 / bearing_norm
+    cos_final = -(cos_lat * sin_lat0 - sin_lat * cos_lat0 * cos_lon) /
+                bearing_norm
+    return (distance, sin_initial, cos_initial, sin_final, cos_final)
+end
+
+function _spherical_mollifier(radii, ell, sphere_radius)
+    area_jacobian = [_spherical_area_jacobian(r, sphere_radius) for r in radii]
+    raw_kernel = [_mollifier(r, ell) for r in radii]
+    normalization_integral = 2π * _trapz(area_jacobian .* raw_kernel, radii)
+    normalization_integral > 0 && isfinite(normalization_integral) ||
+        throw(ArgumentError("unable to normalize the spherical mollifier for length scale $ell"))
+    normalization = inv(normalization_integral)
+    derivative = [_mollifier_derivative(r, ell, normalization) for r in radii]
+    return normalization, derivative, area_jacobian
+end
+
+function _spherical_angular_integral(samples, angles, use_angular_weights)
+    isempty(samples) && return 0.0
+    if !use_angular_weights
+        return 2π * sum(samples) / length(samples)
+    end
+
+    groups = Dict{Tuple{Int,Int},Vector{Int}}()
+    for i in eachindex(samples)
+        key = (round(Int, cos(angles[i]) / 1e-6),
+               round(Int, sin(angles[i]) / 1e-6))
+        push!(get!(groups, key, Int[]), i)
+    end
+
+    group_angles = Float64[]
+    group_values = Float64[]
+    for indices in Base.values(groups)
+        sin_mean = sum(sin(angles[i]) for i in indices) / length(indices)
+        cos_mean = sum(cos(angles[i]) for i in indices) / length(indices)
+        push!(group_angles, mod(atan(sin_mean, cos_mean), 2π))
+        push!(group_values, sum(samples[i] for i in indices) / length(indices))
+    end
+
+    if length(group_angles) <= 4
+        return 2π * sum(samples) / length(samples)
+    end
+
+    order = sortperm(group_angles)
+    sorted_angles = group_angles[order]
+    gaps = diff(vcat(sorted_angles, sorted_angles[1] + 2π))
+    cell_widths = (gaps .+ circshift(gaps, 1)) ./ 2
+    return sum(cell_widths[i] * group_values[order[i]] for i in eachindex(order))
+end
+
 function _uniform_spacing(coordinates, name)
     length(coordinates) >= 2 || throw(ArgumentError("$name must contain at least two coordinates"))
     all(isfinite, coordinates) || throw(ArgumentError("$name coordinates must be finite"))
@@ -31,6 +105,143 @@ function _uniform_spacing(coordinates, name)
     all(d -> isapprox(d, spacing; rtol=1e-8, atol=abs(spacing) * 1e-10), differences) ||
         throw(ArgumentError("$name coordinates must be regularly spaced"))
     return Float64(spacing)
+end
+
+function _spherical_kinetic_energy_transfer(
+    u, v, w, longitude, latitude, length_scales;
+    max_radius, sphere_radius, use_angular_weights, xdim, ydim,
+)
+    size(u) == size(v) == size(w) ||
+        throw(ArgumentError("u, v, and w must have identical shapes"))
+    ndims(u) >= 2 || throw(ArgumentError("velocity arrays must have at least two dimensions"))
+    1 <= xdim <= ndims(u) || throw(ArgumentError("xdim is outside the array dimensions"))
+    1 <= ydim <= ndims(u) || throw(ArgumentError("ydim is outside the array dimensions"))
+    xdim != ydim || throw(ArgumentError("xdim and ydim must be different"))
+    length(longitude) == size(u, xdim) ||
+        throw(ArgumentError("length(longitude) must match size(u, xdim)"))
+    length(latitude) == size(u, ydim) ||
+        throw(ArgumentError("length(latitude) must match size(u, ydim)"))
+    isempty(length_scales) && throw(ArgumentError("length_scales must not be empty"))
+    isfinite(max_radius) && max_radius > 0 ||
+        throw(ArgumentError("max_radius must be finite and positive"))
+    isfinite(sphere_radius) && sphere_radius > 0 ||
+        throw(ArgumentError("sphere_radius must be finite and positive"))
+    max_radius <= π * sphere_radius ||
+        throw(ArgumentError("max_radius cannot exceed half the sphere circumference"))
+    all(s -> isfinite(s) && s > 0, length_scales) ||
+        throw(ArgumentError("length_scales must contain finite positive values"))
+    all(isfinite, longitude) && all(isfinite, latitude) ||
+        throw(ArgumentError("longitude and latitude coordinates must be finite"))
+    all(lat -> -90 <= lat <= 90, latitude) ||
+        throw(ArgumentError("latitude coordinates must lie in [-90, 90] degrees"))
+
+    dlon = _uniform_spacing(longitude, "longitude")
+    dlat = _uniform_spacing(latitude, "latitude")
+    longitude[end] - longitude[1] < 360 - dlon * 1e-8 ||
+        throw(ArgumentError("longitude must not contain a duplicated 360-degree endpoint"))
+
+    nlon, nlat = length(longitude), length(latitude)
+    requested = Float64.(length_scales)
+    radial_extent = Float64(max_radius)
+    if maximum(requested) < radial_extent / 2
+        radial_extent = 2 * maximum(requested)
+    end
+    nominal_step = Float64(sphere_radius) * deg2rad(max(dlon, dlat))
+    nradial = ceil(Int, radial_extent / nominal_step)
+    nradial >= 2 ||
+        throw(ArgumentError("max_radius and grid spacing must provide at least two radial samples"))
+    radial_step = radial_extent / nradial
+    radii = Float64[(i - 0.5) * radial_step for i in 1:nradial]
+
+    scales = sort!(unique!(requested))
+    minimum_scale = nominal_step * (1 - 1e-10)
+    filter!(ell -> minimum_scale <= ell <= radial_extent / 2, scales)
+    isempty(scales) && throw(ArgumentError(
+        "no length scales are resolvable; allowed range is [$minimum_scale, $(radial_extent / 2)]"
+    ))
+
+    remaining_dims = [d for d in 1:ndims(u) if d != xdim && d != ydim]
+    permutation = (remaining_dims..., ydim, xdim)
+    up = permutedims(Float64.(u), permutation)
+    vp = permutedims(Float64.(v), permutation)
+    wp = permutedims(Float64.(w), permutation)
+    remaining_sizes = Tuple(size(u, d) for d in remaining_dims)
+    profiles = isempty(remaining_sizes) ? 1 : prod(remaining_sizes)
+    up = reshape(up, profiles, nlat, nlon)
+    vp = reshape(vp, profiles, nlat, nlon)
+    wp = reshape(wp, profiles, nlat, nlon)
+    lon_rad = deg2rad.(Float64.(longitude))
+    lat_rad = deg2rad.(Float64.(latitude))
+
+    angular_integrand = zeros(Float64, nradial, profiles, nlat, nlon)
+    for iy0 in 1:nlat, ix0 in 1:nlon
+        bin_values = [[Float64[] for _ in 1:nradial] for _ in 1:profiles]
+        bin_angles = [[Float64[] for _ in 1:nradial] for _ in 1:profiles]
+        lat0 = lat_rad[iy0]
+        for iy in 1:nlat, ix in 1:nlon
+            lat = lat_rad[iy]
+            delta_lon = lon_rad[ix] - lon_rad[ix0]
+            distance, sin_initial, cos_initial, sin_final, cos_final =
+                _great_circle_geometry(lat0, lat, delta_lon, sphere_radius)
+            distance < radial_extent || continue
+            ir = floor(Int, distance / radial_step) + 1
+            ir <= nradial || continue
+            isfinite(sin_initial) || continue
+            initial_bearing = atan(sin_initial, cos_initial)
+
+            for profile in 1:profiles
+                delta_t = up[profile, iy, ix] * sin_final +
+                          vp[profile, iy, ix] * cos_final -
+                          up[profile, iy0, ix0] * sin_initial -
+                          vp[profile, iy0, ix0] * cos_initial
+                delta_n = up[profile, iy, ix] * cos_final -
+                          vp[profile, iy, ix] * sin_final -
+                          up[profile, iy0, ix0] * cos_initial +
+                          vp[profile, iy0, ix0] * sin_initial
+                delta_w = wp[profile, iy, ix] - wp[profile, iy0, ix0]
+                value = delta_t * (delta_t^2 + delta_n^2 + delta_w^2)
+                isfinite(value) || continue
+                push!(bin_values[profile][ir], value)
+                push!(bin_angles[profile][ir], initial_bearing)
+            end
+        end
+
+        for ir in 1:nradial, profile in 1:profiles
+            angular_integrand[ir, profile, iy0, ix0] =
+                _spherical_angular_integral(
+                    bin_values[profile][ir], bin_angles[profile][ir],
+                    use_angular_weights,
+                )
+        end
+    end
+
+    result = Array{Float64}(undef, length(scales), profiles, nlat, nlon)
+    for (iscale, ell) in enumerate(scales)
+        _, derivative, area_jacobian =
+            _spherical_mollifier(radii, ell, sphere_radius)
+        support = findall(radius -> radius < 2ell, radii)
+        length(support) >= 2 ||
+            throw(ArgumentError("length scale $ell has fewer than two radial samples in kernel support"))
+        weights = derivative[support] .* area_jacobian[support]
+        for profile in 1:profiles, iy in 1:nlat, ix in 1:nlon
+            radial_values = [
+                weights[j] * angular_integrand[ir, profile, iy, ix]
+                for (j, ir) in enumerate(support)
+            ]
+            result[iscale, profile, iy, ix] =
+                _trapz(radial_values, radii[support]) / 4
+        end
+    end
+
+    output_shape = (length(scales), remaining_sizes..., nlat, nlon)
+    output_order = (:length_scale, (Symbol("dim", string(d)) for d in remaining_dims)...,
+                    Symbol("dim", string(ydim)), Symbol("dim", string(xdim)))
+    return (
+        transfer=reshape(result, output_shape),
+        length_scales=scales,
+        radii=radii,
+        dimension_order=output_order,
+    )
 end
 
 function _shift_source(index, offset, extent, periodic)
@@ -44,20 +255,26 @@ end
 """
     kinetic_energy_transfer(u, v, w, x, y, length_scales;
         max_radius, periodic=(true, false), xdim=ndims(u),
-        ydim=ndims(u)-1)
+        ydim=ndims(u)-1, geometry=:cartesian, sphere_radius=6_371_000.0)
 
 Compute the 2-D kinetic-energy transfer
-`D_ell = (1/4) ∫ (dG_ell/dr) r ∫ (delta_u ⋅ r_hat) |delta_u|^2 dphi dr`
-on a regular Cartesian grid. The mollifier is normalized with the 2-D
-Euclidean area element `2πr dr`.
+`D_ell = (1/4) ∫ (dG_ell/dr) J(r) ∫ (delta_u ⋅ r_hat) |delta_u|^2 dphi dr`
+on a regular Cartesian grid by default, where `J(r)=r`. Set
+`geometry=:spherical` to use longitude/latitude coordinates in degrees,
+great-circle displacements and bearings, and `J(r)=R sin(r/R)` for both
+mollifier normalization and radial integration. `sphere_radius` is in the
+same distance units as `max_radius` and `length_scales`.
 
 `u`, `v`, and `w` must be equally shaped real arrays. `xdim` and `ydim`
 identify the longitude-like and latitude-like axes; by default, the final
-two axes are `(y, x)`. Coordinates `x` and `y`, `max_radius`, and
-`length_scales` must use the same units. `periodic` is `(x_periodic,
-y_periodic)`. Nonperiodic out-of-domain increments contribute `NaN`, which
-is treated as zero in the angular integral, matching LoSSETT's integration
-handling of masked boundaries.
+two axes are `(y, x)`. For Cartesian geometry, `x`, `y`, `max_radius`, and
+`length_scales` use common linear units. For spherical geometry, `x` and `y`
+are longitude and latitude in degrees, while the radii and scales use linear
+units (metres by default). `periodic` is `(x_periodic, y_periodic)` for
+Cartesian geometry and is ignored for spherical geometry, where distances
+are computed directly between the supplied coordinates. Spherical annuli use
+only supplied grid points; empty annuli contribute zero, and regional grids
+therefore provide incomplete directional coverage.
 
 Returns a named tuple. `transfer` has shape
 `(length_scale, remaining input axes in original order, y, x)`;
@@ -65,8 +282,15 @@ Returns a named tuple. `transfer` has shape
 resolvable range, and `radii` contains the sampled radial annuli. Input
 dimensions are retained, with spatial axes placed last in `(y, x)` order.
 
-For latitude/longitude data in degrees, convert coordinates and all scales
-to metres before calling (the ANCIL tutorial uses 110,000 m per degree).
+The Python `spherical_geometry` workflow uses the same great-circle distances
+and endpoint-bearing projections and normalizes its mollifier with the
+spherical area element. Its current transfer integration nevertheless uses
+`r dr` rather than `R sin(r/R) dr`; the Julia spherical mode uses the latter
+consistently in both the normalization and transfer integral. The separate
+legacy Python `calc_scale_increments` path still computes Euclidean
+coordinate-offset distances and angles. The spherical workflow also currently
+omits vertical velocity from its increment norm; Julia retains the Cartesian
+API's `w` contribution to `|delta u|^2`.
 """
 function kinetic_energy_transfer(
     u::AbstractArray{<:Real},
@@ -79,7 +303,20 @@ function kinetic_energy_transfer(
     periodic::Tuple{Bool,Bool}=(true, false),
     xdim::Integer=ndims(u),
     ydim::Integer=ndims(u) - 1,
+    geometry::Union{Symbol,AbstractString}=:cartesian,
+    sphere_radius::Real=_DEFAULT_SPHERE_RADIUS,
+    use_angular_weights::Bool=false,
 )
+    geometry_kind = Symbol(geometry)
+    if geometry_kind == :spherical
+        return _spherical_kinetic_energy_transfer(
+            u, v, w, x, y, length_scales;
+            max_radius, sphere_radius, use_angular_weights, xdim, ydim,
+        )
+    elseif geometry_kind != :cartesian
+        throw(ArgumentError("geometry must be :cartesian or :spherical"))
+    end
+
     size(u) == size(v) == size(w) || throw(ArgumentError("u, v, and w must have identical shapes"))
     ndims(u) >= 2 || throw(ArgumentError("velocity arrays must have at least two dimensions"))
     1 <= xdim <= ndims(u) || throw(ArgumentError("xdim is outside the array dimensions"))

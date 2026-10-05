@@ -71,18 +71,33 @@ def kinetic_energy_transfer(
     periodic=(True, False),
     xdim=None,
     ydim=None,
+    geometry="cartesian",
+    sphere_radius=6_371_000.0,
+    use_angular_weights=False,
 ):
     """Compute kinetic-energy transfer using the Julia core from Python.
 
     Pass same-shaped real-valued arrays for `u`, `v`, and `w`; one-dimensional
-    coordinate vectors `x` and `y`; and length scales in the same units as
-    the coordinates. For `(time, pressure, latitude, longitude)` data, pass
-    `xdim=4, ydim=3`. Returns a :class:`JuliaTransferResult` with NumPy arrays
-    for transfer, clipped scales, and sampled radii.
+    coordinate vectors `x` and `y`; and length scales. The default
+    `geometry="cartesian"` requires coordinates, scales, and `max_radius` in
+    common linear units. With `geometry="spherical"`, `x` and `y` are
+    longitude and latitude in degrees; scales, `max_radius`, and
+    `sphere_radius` are in metres (or another common linear unit). For
+    `(time, pressure, latitude, longitude)` data, pass `xdim=4, ydim=3`.
+    `use_angular_weights=True` uses bearing-sector Voronoi weights instead of
+    the default uniform sample average. Returns a :class:`JuliaTransferResult`
+    with NumPy arrays for transfer, clipped scales, and sampled radii.
 
     The first call starts Julia and compiles the core; warm it up before
     timing subsequent calls if measuring steady-state compute performance.
+
+    Spherical geometry integrates with `R*sin(r/R) dr` and uses that same
+    spherical area element to normalize the mollifier. This corrects the
+    current Python `spherical_geometry` transfer routine, which normalizes
+    spherically but still uses `r dr` in its transfer integral.
     """
+    if geometry not in ("cartesian", "spherical"):
+        raise ValueError("geometry must be 'cartesian' or 'spherical'")
     u_array = _float_array("u", u, ndim=np.ndim(u))
     if u_array.ndim < 2:
         raise ValueError("u, v, and w must have at least two dimensions")
@@ -113,6 +128,9 @@ def kinetic_energy_transfer(
         periodic=(bool(periodic[0]), bool(periodic[1])),
         xdim=int(xdim),
         ydim=int(ydim),
+        geometry=geometry,
+        sphere_radius=float(sphere_radius),
+        use_angular_weights=bool(use_angular_weights),
     )
     return JuliaTransferResult(
         transfer=np.array(result[0], dtype=np.float64, copy=True),
