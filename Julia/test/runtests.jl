@@ -1,6 +1,10 @@
 using LoSSETT
 using Test
 
+@testset "LoSSETT package load" begin
+    @test isdefined(LoSSETT, :kinetic_energy_transfer)
+end
+
 @testset "LoSSETT kinetic energy transfer" begin
     @testset "independent radial/angular reference" begin
         x = collect(0.0:1.0:4.0)

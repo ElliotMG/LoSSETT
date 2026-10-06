@@ -25,6 +25,7 @@ packages = [
 [tool.poetry]
 include = [
     { path = "src/lossett/_julia/LoSSETT.jl", format = ["sdist", "wheel"] },
+    { path = "src/lossett/_julia/LoSSETT_core.jl", format = ["sdist", "wheel"] },
 ]
 
 [project.urls]
