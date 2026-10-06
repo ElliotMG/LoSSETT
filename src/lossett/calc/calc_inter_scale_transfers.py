@@ -433,12 +433,14 @@ def calc_scale_space_integral(
     if length_scales is None:
         length_scales = r.values[1:len(r)//max_r_ratio]
 
-    G, dG_dr = get_integration_kernels(
+    kernels = get_integration_kernels(
         r,
         length_scales,
         normalization=geometry,
         return_deriv=True
     )
+    G = kernels["G"]
+    dG_dr = kernels["dG_dr"]
     if kernel_gradient == True:
         weight = dG_dr
     else:
