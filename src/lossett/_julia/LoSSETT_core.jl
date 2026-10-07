@@ -108,6 +108,7 @@ end
 function _spherical_kinetic_energy_transfer(
     u, v, w, longitude, latitude, length_scales;
     max_radius, sphere_radius, use_angular_weights, xdim, ydim,
+    tangent_quadratic,
 )
     size(u) == size(v) == size(w) ||
         throw(ArgumentError("u, v, and w must have identical shapes"))
@@ -132,6 +133,8 @@ function _spherical_kinetic_energy_transfer(
         throw(ArgumentError("longitude and latitude coordinates must be finite"))
     all(lat -> -90 <= lat <= 90, latitude) ||
         throw(ArgumentError("latitude coordinates must lie in [-90, 90] degrees"))
+    tangent_quadratic && any(lat -> abs(lat) == 90, latitude) &&
+        throw(ArgumentError("tangent_quadratic geometry is undefined at the poles"))
 
     dlon = _uniform_spacing(longitude, "longitude")
     dlat = _uniform_spacing(latitude, "latitude")
@@ -188,14 +191,31 @@ function _spherical_kinetic_energy_transfer(
             initial_bearing = atan(sin_initial, cos_initial)
 
             for profile in 1:profiles
-                delta_t = up[profile, iy, ix] * sin_final +
-                          vp[profile, iy, ix] * cos_final -
-                          up[profile, iy0, ix0] * sin_initial -
-                          vp[profile, iy0, ix0] * cos_initial
-                delta_n = up[profile, iy, ix] * cos_final -
-                          vp[profile, iy, ix] * sin_final -
-                          up[profile, iy0, ix0] * cos_initial +
-                          vp[profile, iy0, ix0] * sin_initial
+                delta_u = up[profile, iy, ix] - up[profile, iy0, ix0]
+                delta_v = vp[profile, iy, ix] - vp[profile, iy0, ix0]
+                if tangent_quadratic
+                    delta_alpha =
+                        distance * sin_initial * tan(lat0) / sphere_radius
+                    delta_t = delta_u * sin_initial + delta_v * cos_initial +
+                              delta_alpha * (
+                                  up[profile, iy, ix] * cos_initial -
+                                  vp[profile, iy, ix] * sin_initial
+                              )
+                    delta_n = delta_u * cos_initial - delta_v * sin_initial -
+                              delta_alpha * (
+                                  up[profile, iy, ix] * sin_initial +
+                                  vp[profile, iy, ix] * cos_initial
+                              )
+                else
+                    delta_t = up[profile, iy, ix] * sin_final +
+                              vp[profile, iy, ix] * cos_final -
+                              up[profile, iy0, ix0] * sin_initial -
+                              vp[profile, iy0, ix0] * cos_initial
+                    delta_n = up[profile, iy, ix] * cos_final -
+                              vp[profile, iy, ix] * sin_final -
+                              up[profile, iy0, ix0] * cos_initial +
+                              vp[profile, iy0, ix0] * sin_initial
+                end
                 delta_w = wp[profile, iy, ix] - wp[profile, iy0, ix0]
                 value = delta_t * (delta_t^2 + delta_n^2 + delta_w^2)
                 isfinite(value) || continue
@@ -261,7 +281,10 @@ on a regular Cartesian grid by default, where `J(r)=r`. Set
 `geometry=:spherical` to use longitude/latitude coordinates in degrees,
 great-circle displacements and bearings, and `J(r)=R sin(r/R)` for both
 mollifier normalization and radial integration. `sphere_radius` is in the
-same distance units as `max_radius` and `length_scales`.
+same distance units as `max_radius` and `length_scales`. Set
+`geometry=:tangent_quadratic` to use great-circle radial bins with an
+initial-bearing tangent-plane velocity increment corrected for leading-order
+spherical curvature; it uses the same spherical radial kernel as `:spherical`.
 
 `u`, `v`, and `w` must be equally shaped real arrays. `xdim` and `ydim`
 identify the longitude-like and latitude-like axes; by default, the final
@@ -273,6 +296,11 @@ Cartesian geometry and is ignored for spherical geometry, where distances
 are computed directly between the supplied coordinates. Spherical annuli use
 only supplied grid points; empty annuli contribute zero, and regional grids
 therefore provide incomplete directional coverage.
+For `:tangent_quadratic`, the increment correction is
+`delta_alpha = (r/R) sin(initial_bearing) tan(latitude_origin)`. Both spherical
+modes include the vertical-velocity increment in the increment norm.
+`:tangent_quadratic` rejects grids containing either pole because its
+curvature correction is undefined there.
 
 Returns a named tuple. `transfer` has shape
 `(length_scale, remaining input axes in original order, y, x)`;
@@ -280,15 +308,15 @@ Returns a named tuple. `transfer` has shape
 resolvable range, and `radii` contains the sampled radial annuli. Input
 dimensions are retained, with spatial axes placed last in `(y, x)` order.
 
-The Python `spherical_geometry` workflow uses the same great-circle distances
-and endpoint-bearing projections and normalizes its mollifier with the
-spherical area element. Its current transfer integration nevertheless uses
-`r dr` rather than `R sin(r/R) dr`; the Julia spherical mode uses the latter
-consistently in both the normalization and transfer integral. The separate
-legacy Python `calc_scale_increments` path still computes Euclidean
-coordinate-offset distances and angles. The spherical workflow also currently
-omits vertical velocity from its increment norm; Julia retains the Cartesian
-API's `w` contribution to `|delta u|^2`.
+The Python `spherical_geometry` workflow's `tangent_quadratic` increment uses
+the initial-bearing tangent-plane projection plus the leading-order curvature
+correction above. Julia retains that velocity-increment approximation while
+using `R sin(r/R)` consistently for spherical mollifier normalization and
+transfer integration; the Python workflow currently integrates with `r dr`.
+Julia also retains the Cartesian API's `w` contribution to `|delta u|^2`,
+which the Python tangent-quadratic increment omits. The separate legacy
+Python `calc_scale_increments` path still computes Euclidean coordinate-offset
+distances and angles.
 """
 function kinetic_energy_transfer(
     u::AbstractArray{<:Real},
@@ -306,13 +334,16 @@ function kinetic_energy_transfer(
     use_angular_weights::Bool=false,
 )
     geometry_kind = Symbol(geometry)
-    if geometry_kind == :spherical
+    if geometry_kind == :spherical || geometry_kind == :tangent_quadratic
         return _spherical_kinetic_energy_transfer(
             u, v, w, x, y, length_scales;
             max_radius, sphere_radius, use_angular_weights, xdim, ydim,
+            tangent_quadratic=geometry_kind == :tangent_quadratic,
         )
     elseif geometry_kind != :cartesian
-        throw(ArgumentError("geometry must be :cartesian or :spherical"))
+        throw(ArgumentError(
+            "geometry must be :cartesian, :spherical, or :tangent_quadratic",
+        ))
     end
 
     size(u) == size(v) == size(w) || throw(ArgumentError("u, v, and w must have identical shapes"))

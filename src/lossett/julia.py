@@ -83,6 +83,9 @@ def kinetic_energy_transfer(
     common linear units. With `geometry="spherical"`, `x` and `y` are
     longitude and latitude in degrees; scales, `max_radius`, and
     `sphere_radius` are in metres (or another common linear unit). For
+    `geometry="tangent_quadratic"`, distances and radial integration remain
+    spherical while the velocity increment uses an initial-bearing
+    tangent-plane approximation with a leading-order curvature correction. For
     `(time, pressure, latitude, longitude)` data, pass `xdim=4, ydim=3`.
     `use_angular_weights=True` uses bearing-sector Voronoi weights instead of
     the default uniform sample average. Returns a :class:`JuliaTransferResult`
@@ -96,8 +99,10 @@ def kinetic_energy_transfer(
     current Python `spherical_geometry` transfer routine, which normalizes
     spherically but still uses `r dr` in its transfer integral.
     """
-    if geometry not in ("cartesian", "spherical"):
-        raise ValueError("geometry must be 'cartesian' or 'spherical'")
+    if geometry not in ("cartesian", "spherical", "tangent_quadratic"):
+        raise ValueError(
+            "geometry must be 'cartesian', 'spherical', or 'tangent_quadratic'"
+        )
     u_array = _float_array("u", u, ndim=np.ndim(u))
     if u_array.ndim < 2:
         raise ValueError("u, v, and w must have at least two dimensions")

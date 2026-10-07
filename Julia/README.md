@@ -38,7 +38,20 @@ Python spherical workflow's uniform `2π`-scaled sample average.
 Only supplied grid points participate in each annulus: empty annuli contribute
 zero, and a regional grid has incomplete directional coverage near its edges.
 
-The Python bridge accepts the same geometry options:
+Use `geometry=:tangent_quadratic` for an alternate spherical approximation.
+It keeps great-circle distances and the spherical radial/kernel treatment but
+uses the initial bearing for both endpoint projections, with the leading-order
+curvature correction
+`delta_alpha = (r / sphere_radius) * sin(initial_bearing) * tan(latitude_origin)`.
+As in Julia's full spherical mode, the increment norm includes `w`; the Python
+branch's corresponding tangent-quadratic function omits vertical velocity.
+The approximation is intended for spherical-cap/subset calculations and does
+not change the default Cartesian or full spherical modes. Because the
+correction contains `tan(latitude_origin)`, grids that include either pole are
+rejected.
+
+The Python bridge accepts the same geometry options, including
+`geometry="tangent_quadratic"`:
 
 ```python
 from lossett.julia import kinetic_energy_transfer

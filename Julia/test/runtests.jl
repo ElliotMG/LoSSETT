@@ -145,6 +145,88 @@ end
                 LoSSETT._trapz(derivative .* jacobian .* expected_angular, expected_radii) / 4
             @test direct.transfer[1, 2, 2] ≈ expected_transfer rtol=1e-12
 
+            quadratic_longitude = [-0.02, 0.0, 0.02]
+            quadratic_latitude = [40.0, 40.01, 40.02]
+            quadratic_u = [
+                0.2 * ix - 0.3 * iy + 0.1 * ix * iy
+                for iy in 1:3, ix in 1:3
+            ]
+            quadratic_v = [
+                -0.1 * ix + 0.5 * iy + 0.07 * ix^2
+                for iy in 1:3, ix in 1:3
+            ]
+            quadratic_w = [
+                0.15 * ix - 0.2 * iy + 0.03 * ix * iy
+                for iy in 1:3, ix in 1:3
+            ]
+            quadratic_step = earth_radius * deg2rad(0.02)
+            quadratic = kinetic_energy_transfer(
+                quadratic_u, quadratic_v, quadratic_w,
+                quadratic_longitude, quadratic_latitude, [quadratic_step];
+                max_radius=2.5 * quadratic_step,
+                geometry=:tangent_quadratic,
+            )
+
+            quadratic_radii = quadratic.radii
+            quadratic_dr = quadratic_radii[2] - quadratic_radii[1]
+            quadratic_bins = [Float64[] for _ in quadratic_radii]
+            origin_latitude = deg2rad(quadratic_latitude[2])
+            for iy in 1:3, ix in 1:3
+                (iy == 2 && ix == 2) && continue
+                latitude_rad = deg2rad(quadratic_latitude[iy])
+                delta_longitude = deg2rad(
+                    quadratic_longitude[ix] - quadratic_longitude[2],
+                )
+                haversine =
+                    sin((latitude_rad - origin_latitude) / 2)^2 +
+                    cos(origin_latitude) * cos(latitude_rad) *
+                    sin(delta_longitude / 2)^2
+                distance = 2 * earth_radius *
+                           atan(sqrt(haversine), sqrt(1 - haversine))
+                sine_bearing = sin(delta_longitude) * cos(latitude_rad)
+                cosine_bearing =
+                    cos(origin_latitude) * sin(latitude_rad) -
+                    sin(origin_latitude) * cos(latitude_rad) *
+                    cos(delta_longitude)
+                bearing_norm = hypot(sine_bearing, cosine_bearing)
+                sine_bearing /= bearing_norm
+                cosine_bearing /= bearing_norm
+                delta_alpha = distance * sine_bearing *
+                              tan(origin_latitude) / earth_radius
+                delta_u = quadratic_u[iy, ix] - quadratic_u[2, 2]
+                delta_v = quadratic_v[iy, ix] - quadratic_v[2, 2]
+                delta_t = delta_u * sine_bearing + delta_v * cosine_bearing +
+                          delta_alpha * (
+                              quadratic_u[iy, ix] * cosine_bearing -
+                              quadratic_v[iy, ix] * sine_bearing
+                          )
+                delta_n = delta_u * cosine_bearing - delta_v * sine_bearing -
+                          delta_alpha * (
+                              quadratic_u[iy, ix] * sine_bearing +
+                              quadratic_v[iy, ix] * cosine_bearing
+                          )
+                delta_w = quadratic_w[iy, ix] - quadratic_w[2, 2]
+                bin = floor(Int, distance / quadratic_dr) + 1
+                push!(
+                    quadratic_bins[bin],
+                    delta_t * (delta_t^2 + delta_n^2 + delta_w^2),
+                )
+            end
+            quadratic_angular = [
+                isempty(values) ? 0.0 : 2π * sum(values) / length(values)
+                for values in quadratic_bins
+            ]
+            _, quadratic_derivative, quadratic_jacobian =
+                LoSSETT._spherical_mollifier(
+                    quadratic_radii, quadratic_step, earth_radius,
+                )
+            quadratic_reference = LoSSETT._trapz(
+                quadratic_derivative .* quadratic_jacobian .* quadratic_angular,
+                quadratic_radii,
+            ) / 4
+            @test quadratic.transfer[1, 2, 2] ≈ quadratic_reference rtol=1e-12
+            @test quadratic.length_scales == [quadratic_step]
+
             batched = kinetic_energy_transfer(
                 zeros(2, 5, 5), zeros(2, 5, 5), zeros(2, 5, 5),
                 longitude, latitude, [grid_step];
@@ -161,6 +243,11 @@ end
             @test_throws ArgumentError kinetic_energy_transfer(
                 u, v, w, longitude, [0.0, 0.01, 90.01, 90.02, 90.03], [grid_step];
                 max_radius=2.5 * grid_step, geometry=:spherical,
+            )
+            @test_throws ArgumentError kinetic_energy_transfer(
+                u, v, w, longitude, [-90.0, -89.99, -89.98, -89.97, -89.96],
+                [grid_step];
+                max_radius=2.5 * grid_step, geometry=:tangent_quadratic,
             )
             @test_throws ArgumentError kinetic_energy_transfer(
                 u, v, w, [-180.0, -90.0, 0.0, 90.0, 180.0], latitude, [grid_step];
