@@ -136,8 +136,8 @@ def parse_args():
         default="spherical",
         choices=["spherical", "tangent_plane", "tangent_quadratic"],
         help=(
-            "Approximation to be used in spherical geometry calculation. 'spherical' uses full spherical "
-            "geometry but is slower to execute."
+            "Approximation to be used in spherical geometry calculation. 'spherical' "
+            "uses full spherical geometry but is slower to execute."
         )
     )
 
@@ -169,6 +169,15 @@ def parse_args():
         )
     )
 
+    parser.add_argument(
+        "--cyclic-padding",
+        action="store_true",
+        help=(
+            "Use cyclically padded velocity fields to avoid "
+            "modulo arithmetic when applying longitude shifts."
+        )
+    )
+
     return parser.parse_args()
 
 def setup_logging(level="INFO"):
@@ -181,7 +190,7 @@ def setup_logging(level="INFO"):
         ),
     )
 
-def load_geometry(geom_path, grid, chunk_origin, nlat, nlon, nbins_fac=4):
+def load_geometry(geom_path, grid, chunk_origin, nlat, nlon, nbins_fac=2):
     geom_fpath = build_geometry_filename(
         geom_path,
         grid,
@@ -427,6 +436,70 @@ def load_geometry_chunk(ds_geom, olat_chunk, distance_edges, max_R=None, profile
         )
     return geom_chunk, active_indices
 
+def pack_active_geometry(
+    geom_chunk,
+    active_indices,
+    use_angular_weights=False,
+    method="spherical",
+):
+    """
+    Gather all geometry fields once per latitude chunk.
+    """
+
+    sin_init_all = geom_chunk.sine_initial_bearing.values
+    cos_init_all = geom_chunk.cosine_initial_bearing.values
+
+    sin_final_all = geom_chunk.sine_final_bearing.values
+    cos_final_all = geom_chunk.cosine_final_bearing.values
+
+    bins_all = geom_chunk.great_circle_distance_bin.values
+
+    if use_angular_weights:
+        weights_all = geom_chunk.angular_weight.values
+    else:
+        weights_all = None
+
+    if method == "tangent_quadratic":
+        distance_all = geom_chunk.great_circle_distance.values
+    else:
+        distance_all = None
+
+    active_geom = []
+
+    for i, (ilat, ilon) in enumerate(active_indices):
+
+        active_geom.append(
+            {
+                "ilat": ilat,
+                "ilon": ilon,
+
+                "sin_init":
+                    sin_init_all[i, ilat, ilon],
+
+                "cos_init":
+                    cos_init_all[i, ilat, ilon],
+
+                "sin_final":
+                    sin_final_all[i, ilat, ilon],
+
+                "cos_final":
+                    cos_final_all[i, ilat, ilon],
+
+                "bins":
+                    bins_all[i, ilat, ilon],
+
+                "weights":
+                    None if weights_all is None
+                    else weights_all[i, ilat, ilon],
+
+                "distance":
+                    None if distance_all is None
+                    else distance_all[i, ilat, ilon],
+            }
+        )
+
+    return active_geom
+
 def process_origin_longitudes(
     olon_block,
     u,
@@ -434,11 +507,16 @@ def process_origin_longitudes(
     geom_chunk,
     active_indices,
     distances,
+    active_geom=None,
     dtype=np.float64,
     use_angular_weights=False,
     profiler=None,
     method="spherical",
     w=None,
+    use_cyclic_padding=False,
+    u_pad=None,
+    v_pad=None,
+    w_pad=None,
 ) -> xr.Dataset:
     """
     Compute azimuthally integrated delta-u^3 for a single
@@ -501,18 +579,18 @@ def process_origin_longitudes(
     # roll wind fields (need to check if actually faster than rolling geometry)
     if profiler:
         t0_roll = time.perf_counter()
-    u_roll = u.roll(longitude=-lon_shift, roll_coords=False).load()
-    v_roll = v.roll(longitude=-lon_shift, roll_coords=False).load()
+    #u_roll = u.roll(longitude=-lon_shift, roll_coords=False).load()
+    #v_roll = v.roll(longitude=-lon_shift, roll_coords=False).load()
     if w is not None:
         w0 = w.sel(
             latitude=geom_chunk.origin_latitude,
             longitude=olon,
             method="nearest"
         )
-        w_roll = w.roll(longitude=-lon_shift, roll_coords=False).load()
+    #    w_roll = w.roll(longitude=-lon_shift, roll_coords=False).load()
     else:
         w0=None
-        w_roll=None
+    #    w_roll=None
     
     if profiler:
         profiler.add(
@@ -548,19 +626,28 @@ def process_origin_longitudes(
         # compute within a spherical cap of radius max_R
         du_cubed_ang_int_long, du_cubed_ang_int_vert = \
             compute_du3_angular_integral_subset(
-                u_roll,
-                v_roll,
+                u,
+                v,
+                #u_roll,
+                #v_roll,
                 u0,
                 v0,
                 geom_chunk,
                 active_indices,
                 nbins, # should get nbins from geom_chunk
+                lon_shift,
+                active_geom=active_geom,
                 dtype=dtype,
                 use_angular_weights=use_angular_weights,
                 method=method,
-                w=w_roll,
+                w=w,
+                #w=w_roll,
                 w0=w0,
                 profiler=profiler,
+                use_cyclic_padding=use_cyclic_padding,
+                u_pad=u_pad,
+                v_pad=v_pad,
+                w_pad=w_pad,
             )
     #endif
     
@@ -659,6 +746,7 @@ if __name__ == "__main__":
     time_index = args.time_index
     velocity_file = args.velocity_file
     outname_root = args.outname_root
+    use_cyclic_padding = args.cyclic_padding
 
     if outname_root is None:
         outname_root = Path(velocity_file).stem
@@ -758,6 +846,33 @@ if __name__ == "__main__":
     else:
         w = None
 
+    # cyclicly padded velocity arrays (experimental)
+    if use_cyclic_padding:
+        logger.info(
+            "Creating cyclically padded velocity fields"
+        )
+        u_pad = np.concatenate(
+            [u.values, u.values],
+            axis=1,
+        )
+        v_pad = np.concatenate(
+            [v.values, v.values],
+            axis=1,
+        )
+        
+        if w is not None:
+            w_pad = np.concatenate(
+                [w.values, w.values],
+                axis=1,
+            )
+        else:
+            w_pad = None
+            
+    else:
+        u_pad = None
+        v_pad = None
+        w_pad = None
+
     # extract pressure and time values
     pressure_value = ds_u.pressure.values
     time_value = ds_u.time.values
@@ -852,6 +967,18 @@ if __name__ == "__main__":
             geom_chunk, active_indices = load_geometry_chunk(
                 ds_geom, olat_chunk, distance_edges, max_R=max_R
             )
+
+            # should maybe be inside a defensive if test
+            if active_indices is not None:
+                active_geom = pack_active_geometry(
+                    geom_chunk,
+                    active_indices,
+                    use_angular_weights=use_angular_weights,
+                    method=method,
+                )
+            else:
+                active_geom = None
+            
             if profiler:
                 profiler.add(
                     "geometry load",
@@ -872,12 +999,6 @@ if __name__ == "__main__":
                     istart : istart + origin_lon_blocksize
                 ]
 
-            #for ilon, olon in enumerate(origin_lons):
-                #if profile:
-                #    if ilon == 1:
-                #        # allow Numba to compile on the first longitude
-                #        prof = cProfile.Profile()
-                #        prof.enable()
                 logger.debug(
                     f"\nOrigin longitude block = {olon_block[0]}--{olon_block[-1]}"
                 )
@@ -889,21 +1010,18 @@ if __name__ == "__main__":
                         geom_chunk,
                         active_indices,
                         distances,
+                        active_geom=active_geom,
                         dtype=calc_dtype,
                         use_angular_weights=use_angular_weights,
                         method=method,
                         w=w,
                         profiler=profiler,
+                        use_cyclic_padding=use_cyclic_padding,
+                        u_pad=u_pad,
+                        v_pad=v_pad,
+                        w_pad=w_pad,
                     )
                 )
-                #if profile:
-                #    if ilon == 1:
-                #        prof.disable()
-                #        stats = pstats.Stats(prof)
-                #        stats.sort_stats("cumtime")
-                #        stats.print_stats(50)
-                #        sys.exit(1)
-            #endfor
         
             if profiler:
                 profiler.add(

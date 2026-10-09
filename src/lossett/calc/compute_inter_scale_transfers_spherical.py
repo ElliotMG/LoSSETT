@@ -27,6 +27,9 @@ fpaths = {
     "n640_maxR_5000": "/work/scratch-pw5/dship/upscale/LoSSETT/spherical_geometry/"\
     f"glm.n1280_GAL9_DS_DATET00_inter_scale_transfer_of_kinetic_energy_"\
     "p0200hPa_n640_maxR_05000.zarr",
+    "n640_maxR_5000": "/work/scratch-pw5/dship/upscale/LoSSETT/spherical_geometry/"\
+    f"glm.n1280_GAL9_DS_DATET00_inter_scale_transfer_of_kinetic_energy_"\
+    "p0200hPa_n640_maxR_02000.zarr",
     "n1280_maxR_2000": "/work/scratch-pw5/dship/upscale/LoSSETT/spherical_geometry/"\
     f"glm.n1280_GAL9_DS_DATET00_inter_scale_transfer_of_kinetic_energy_"\
     "p0200hPa_n1280_maxR_02000.zarr"
@@ -63,6 +66,10 @@ length_scale_sets = {
     ),
     "n640_maxR_5000": np.array(
         [32,64,100,125,160,200,250,320,400,500,640,800,1000,1250,1600,2000,2500],
+        dtype=np.float32
+    ),
+    "n1280_maxR_2000": np.array(
+        [32,48,64,80,100,125,160,200,250,320,400,500,640,800,1000],
         dtype=np.float32
     ),
     "n1280_maxR_2000": np.array(
@@ -234,20 +241,22 @@ if __name__ == "__main__":
     time_str = f"{date}T{hour:02d}"
     #grid="2p5deg"
     #grid="1p0deg"
-    grid="0p5deg"
+    #grid="0p5deg"
     #grid="0p25deg"
     #grid = "n320"
     #grid = "n320_maxR_5000"
     #grid = "n640_maxR_5000"
+    grid = "n640"#_maxR_2000"
     #grid = "n1280_maxR_2000"
 
     save_path = "/work/scratch-pw5/dship/upscale/LoSSETT/spherical_geometry/"
     outname_root = "glm.n1280_GAL9"
     method_str = ""
-    maxR_str = "_maxR_global"
+    #maxR_str = "_maxR_global"
+    maxR_str = "_maxR_02000"
 
-    p = np.array([100,150,200,250,300,400,500,600,700,850,925])
-    #p = np.array([200,850])
+    #p = np.array([100,150,200,250,300,400,500,600,700,850,925])
+    p = np.array([200])#,850])
     g = 9.81 # m s-2
     rho = rho_US_SA(p)
 
@@ -276,12 +285,13 @@ if __name__ == "__main__":
     DL_u = compute_inter_scale_kinetic_energy_transfer(
         ds_du3.delta_u_cubed_angular_integral_longitudinal,
         length_scales,
-        du3_vert=ds_du3.delta_u_cubed_angular_integral_vertical,
+        #du3_vert=ds_du3.delta_u_cubed_angular_integral_vertical,
         ratio_rmax_to_ell=None,
         ratio_L_to_ell=None,
     )
     
     print("\n\n\n",DL_u,"\n\n\n")
+    """
     DL_u_vert = (
         rho * g * DL_u.DL_u_vert_transverse_times_dz.chunk(
             chunks={"pressure":len(p)}
@@ -297,6 +307,7 @@ if __name__ == "__main__":
         }
     )
     DL_u["DL_u_vert_transverse"] = DL_u_vert.chunk(chunks={"pressure":len(p)})
+    """
 
     DL_u_zonal_mean = DL_u.mean("longitude")
 
@@ -304,6 +315,82 @@ if __name__ == "__main__":
     mag=5e-4
     cmap="RdBu_r"
     projection = cpy.crs.Robinson()
+
+    
+
+    # plot hor & vert parts for L = 500, L = 1000 km
+    fig, axes = plt.subplots(
+        nrows=2,
+        ncols=2,
+        figsize=(20,10),
+        subplot_kw={"projection":projection}
+    )
+    ax = axes[0,0]
+    """
+    DL_u.DL_u_vert_transverse.sel(
+        L=500*1e3,
+        method="nearest"
+    ).sel(
+        pressure=200,
+        method="nearest",
+    ).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    """
+    ax = axes[0,1]
+    DL_u.DL_u_longitudinal.sel(
+        L=500*1e3,
+        method="nearest"
+    ).sel(
+        pressure=200,
+        method="nearest",
+    ).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    ax = axes[1,0]
+    """
+    DL_u.DL_u_vert_transverse.sel(
+        L=1000*1e3,
+        method="nearest"
+    ).sel(
+        pressure=200,
+        method="nearest",
+    ).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    """
+    ax = axes[1,1]
+    DL_u.DL_u_longitudinal.sel(
+        L=1000*1e3,
+        method="nearest"
+    ).sel(
+        pressure=200,
+        method="nearest",
+    ).plot.pcolormesh(
+        ax=ax,
+        vmin=-mag,
+        vmax=mag,
+        cmap=cmap,
+        transform=cpy.crs.PlateCarree(),
+    )
+    for ax in axes.flatten():
+        ax.coastlines()
+        ax.grid()
+
+    plt.show()
+    sys.exit(1)
 
     fig, axes = plt.subplots(
         nrows=2,
@@ -336,76 +423,6 @@ if __name__ == "__main__":
         ax.grid()
         ax.set_yscale("log")
         ax.yaxis.set_inverted(True)
-    plt.show()
-    sys.exit(1)
-
-    # plot hor & vert parts for L = 500, L = 1000 km
-    fig, axes = plt.subplots(
-        nrows=2,
-        ncols=2,
-        figsize=(20,10),
-        subplot_kw={"projection":projection}
-    )
-    ax = axes[0,0]
-    DL_u.DL_u_vert_transverse.sel(
-        L=500*1e3,
-        method="nearest"
-    ).sel(
-        pressure=200,
-        method="nearest",
-    ).plot.pcolormesh(
-        ax=ax,
-        vmin=-mag,
-        vmax=mag,
-        cmap=cmap,
-        transform=cpy.crs.PlateCarree(),
-    )
-    ax = axes[0,1]
-    DL_u.DL_u_longitudinal.sel(
-        L=500*1e3,
-        method="nearest"
-    ).sel(
-        pressure=200,
-        method="nearest",
-    ).plot.pcolormesh(
-        ax=ax,
-        vmin=-mag,
-        vmax=mag,
-        cmap=cmap,
-        transform=cpy.crs.PlateCarree(),
-    )
-    ax = axes[1,0]
-    DL_u.DL_u_vert_transverse.sel(
-        L=1000*1e3,
-        method="nearest"
-    ).sel(
-        pressure=200,
-        method="nearest",
-    ).plot.pcolormesh(
-        ax=ax,
-        vmin=-mag,
-        vmax=mag,
-        cmap=cmap,
-        transform=cpy.crs.PlateCarree(),
-    )
-    ax = axes[1,1]
-    DL_u.DL_u_longitudinal.sel(
-        L=1000*1e3,
-        method="nearest"
-    ).sel(
-        pressure=200,
-        method="nearest",
-    ).plot.pcolormesh(
-        ax=ax,
-        vmin=-mag,
-        vmax=mag,
-        cmap=cmap,
-        transform=cpy.crs.PlateCarree(),
-    )
-    for ax in axes.flatten():
-        ax.coastlines()
-        ax.grid()
-
     plt.show()
     
     sys.exit(1)
