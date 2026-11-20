@@ -501,10 +501,14 @@ def select_active_points_packed(
     w=None,
     w0=None,
     profiler=None,
+    flat_uvw=False,
     use_cyclic_padding=False,
     u_pad=None,
     v_pad=None,
     w_pad=None,
+    u_flat=None,
+    v_flat=None,
+    w_flat=None,
 ):
     """
     Select active points using pre-packed geometry.
@@ -534,71 +538,121 @@ def select_active_points_packed(
     if (w is None) != (w0 is None):
         raise ValueError("Must provide both w and w0")
 
-    # setup
+    if (u_flat is None) != (v_flat is None):
+        raise ValueError("Must provide both u_flat and v_flat if using flat path")
+
+    # select geometry
     if profiler:
         t0_select_geom = time.perf_counter()
     geom_i = active_geom[i]
 
-    ilat = geom_i["ilat"]
-    ilon = geom_i["ilon"]
-    if profiler:
-        profiler.add(
-            "angular integral: select geom",
-            time.perf_counter() - t0_select_geom
+    # optional flat index path for benchmarking
+    if (
+            use_cyclic_padding
+            and u_flat is not None
+            and geom_i["flat_idx"] is not None
+    ):
+        # ---------------------------------------------------------
+        # Flat-index path
+        # ---------------------------------------------------------
+        
+        # setup
+        flat_idx_shifted = (
+            geom_i["flat_idx"]
+            + lon_shift
         )
+        if profiler:
+            profiler.add(
+                "angular integral: select geom",
+                time.perf_counter() - t0_select_geom
+            )
+            
+        if profiler:
+            t0_uvw = time.perf_counter()
 
-    if lon_shift == 0:   # avoid printing for every longitude
-        logger.info(
-            "origin_lat=%d  n_active=%d",
-            i,
-            ilat.size,
-        )
+        u_sel = u_flat[flat_idx_shifted]
+        v_sel = v_flat[flat_idx_shifted]
 
-    if profiler:
-        t0_modulo = time.perf_counter()
+        u0_sel = u0.values[i]
+        v0_sel = v0.values[i]
 
-    if use_cyclic_padding:
-        ilon_shifted = ilon + lon_shift
-    else:
-        nlon = u.shape[1]
-        ilon_shifted = (ilon + lon_shift) % nlon
-
-    if profiler:
-        profiler.add(
-            "angular integral: select (longitude shift)",
-            time.perf_counter() - t0_modulo
-        )
-
-    if profiler:
-        t0_uvw = time.perf_counter()
-
-    if use_cyclic_padding:
-        u_sel = u_pad[ilat, ilon_shifted]
-        v_sel = v_pad[ilat, ilon_shifted]
-    else:
-        u_sel = u.values[ilat, ilon_shifted]
-        v_sel = v.values[ilat, ilon_shifted]
-
-    u0_sel = u0.values[i]
-    v0_sel = v0.values[i]
-
-    if w is not None:
-        if use_cyclic_padding:
-            w_sel = w_pad[ilat, ilon_shifted]
+        if w is not None:
+            if (w_flat is None):
+                raise ValueError(
+                    "w_flat required when w is supplied" # this is isn't strictly true...
+                )
+            w_sel = w_flat[flat_idx_shifted]
+            w0_sel = w0.values[i]
         else:
-            w_sel = w.values[ilat, ilon_shifted]
-
-        w0_sel = w0.values[i]
+            w_sel = None
+            w0_sel = None
+    
+        if profiler:
+            profiler.add(
+                "angular integral: select u,v,w",
+                time.perf_counter() - t0_uvw
+            )
 
     else:
-        w_sel = None
-        w0_sel = None
+        # ---------------------------------------------------------
+        # Old path
+        # ---------------------------------------------------------
+
+        # setup
+        ilat = geom_i["ilat"]
+        ilon = geom_i["ilon"]
+
+        if profiler:
+            profiler.add(
+                "angular integral: select geom",
+                time.perf_counter() - t0_select_geom
+            )
+
+        if profiler:
+            t0_modulo = time.perf_counter()
+
+        if use_cyclic_padding:
+            ilon_shifted = ilon + lon_shift
+        else:
+            nlon = u.shape[1]
+            ilon_shifted = (ilon + lon_shift) % nlon
+
+        if profiler:
+            profiler.add(
+                "angular integral: select (longitude shift)",
+                time.perf_counter() - t0_modulo
+            )
+
+        if profiler:
+            t0_uvw = time.perf_counter()
+
+        if use_cyclic_padding:
+            u_sel = u_pad[ilat, ilon_shifted]
+            v_sel = v_pad[ilat, ilon_shifted]
+        else:
+            u_sel = u.values[ilat, ilon_shifted]
+            v_sel = v.values[ilat, ilon_shifted]
+
+        u0_sel = u0.values[i]
+        v0_sel = v0.values[i]
+
+        if w is not None:
+            if use_cyclic_padding:
+                w_sel = w_pad[ilat, ilon_shifted]
+            else:
+                w_sel = w.values[ilat, ilon_shifted]
+
+            w0_sel = w0.values[i]
+
+        else:
+            w_sel = None
+            w0_sel = None
     
-    if profiler:
-        profiler.add(
-            "angular integral: select u,v,w",
-            time.perf_counter() - t0_uvw
-        )
+        if profiler:
+            profiler.add(
+                "angular integral: select u,v,w",
+                time.perf_counter() - t0_uvw
+            )
 
     return (
         u_sel,
@@ -911,6 +965,9 @@ def compute_du3_angular_integral_subset(
         u_pad=None,
         v_pad=None,
         w_pad=None,
+        u_flat=None,
+        v_flat=None,
+        w_flat=None,
 ):
     """
     Inputs
@@ -1016,6 +1073,9 @@ def compute_du3_angular_integral_subset(
                 u_pad=u_pad,
                 v_pad=v_pad,
                 w_pad=w_pad,
+                u_flat=u_flat,
+                v_flat=v_flat,
+                w_flat=w_flat,
             )
         if profiler:
             profiler.add(

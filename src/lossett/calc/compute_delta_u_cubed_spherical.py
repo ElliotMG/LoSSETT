@@ -178,6 +178,14 @@ def parse_args():
         )
     )
 
+    parser.add_argument(
+        "--use-flat-uvw",
+        action="store_true",
+        help=(
+            "Use flattened arrays to speed up gather inside subset path"
+        )
+    )
+
     return parser.parse_args()
 
 def setup_logging(level="INFO"):
@@ -439,6 +447,7 @@ def load_geometry_chunk(ds_geom, olat_chunk, distance_edges, max_R=None, profile
 def pack_active_geometry(
     geom_chunk,
     active_indices,
+    nlon_pad=None,
     use_angular_weights=False,
     method="spherical",
 ):
@@ -471,7 +480,12 @@ def pack_active_geometry(
         active_geom.append(
             {
                 "ilat": ilat,
+                
                 "ilon": ilon,
+
+                "flat_idx":
+                    None if nlon_pad is None
+                    else ilat * nlon_pad + ilon,
 
                 "sin_init":
                     sin_init_all[i, ilat, ilon],
@@ -517,6 +531,9 @@ def process_origin_longitudes(
     u_pad=None,
     v_pad=None,
     w_pad=None,
+    u_flat=None,
+    v_flat=None,
+    w_flat=None,
 ) -> xr.Dataset:
     """
     Compute azimuthally integrated delta-u^3 for a single
@@ -648,6 +665,9 @@ def process_origin_longitudes(
                 u_pad=u_pad,
                 v_pad=v_pad,
                 w_pad=w_pad,
+                u_flat=u_flat,
+                v_flat=v_flat,
+                w_flat=w_flat,
             )
     #endif
     
@@ -747,6 +767,7 @@ if __name__ == "__main__":
     velocity_file = args.velocity_file
     outname_root = args.outname_root
     use_cyclic_padding = args.cyclic_padding
+    use_flat_uvw = args.use_flat_uvw
 
     if outname_root is None:
         outname_root = Path(velocity_file).stem
@@ -867,11 +888,26 @@ if __name__ == "__main__":
             )
         else:
             w_pad = None
+
+        if use_flat_uvw:
+            u_flat = u_pad.ravel()
+            v_flat = v_pad.ravel()
+            if w is not None:
+                w_flat = w_pad.ravel()
+            else:
+                w_flat = None
+        else:
+            u_flat = None
+            v_flat = None
+            w_flat = None
             
     else:
         u_pad = None
         v_pad = None
         w_pad = None
+        u_flat = None
+        v_flat = None
+        w_flat = None
 
     # extract pressure and time values
     pressure_value = ds_u.pressure.values
@@ -970,9 +1006,14 @@ if __name__ == "__main__":
 
             # should maybe be inside a defensive if test
             if active_indices is not None:
+                if use_cyclic_padding:
+                    nlon_pad = u_pad.shape[1]
+                else:
+                    nlon_pad = None
                 active_geom = pack_active_geometry(
                     geom_chunk,
                     active_indices,
+                    nlon_pad=nlon_pad,
                     use_angular_weights=use_angular_weights,
                     method=method,
                 )
@@ -1020,6 +1061,9 @@ if __name__ == "__main__":
                         u_pad=u_pad,
                         v_pad=v_pad,
                         w_pad=w_pad,
+                        u_flat=u_flat,
+                        v_flat=v_flat,
+                        w_flat=w_flat,
                     )
                 )
         
