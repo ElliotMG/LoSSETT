@@ -15,8 +15,11 @@ LOSSETT_VN = version("lossett")
 def calc_inter_scale_energy_transfer_kinetic(
         ds_u_3D,
         control_dict,
-        length_scales=None
+        length_scales=None,
+        save_dtype="float32"
 ):
+    if save_dtype not in ["float32", "float64"]:
+        print(f"\nError! save_dtype must be one of ['float32', 'float64'], not {save_dtype}")
     print(
         "\n\n\n"\
         "################################################################################\n"\
@@ -132,6 +135,8 @@ def calc_inter_scale_energy_transfer_kinetic(
         }
     ) # should add also kernel_attrs dict (for kernel type, dimensionality, length scale-to-resolution conversion)
     # and integration_attrs dict (for integral approximations e.g. Cartesian vs. spherical, uniform grid etc.)
+
+    Dl_u = Dl_u.astype(save_dtype)
     
     return Dl_u;
 
