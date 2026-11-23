@@ -593,38 +593,33 @@ def process_origin_longitudes(
         method="nearest"
     )
                 
-    # roll wind fields (need to check if actually faster than rolling geometry)
-    if profiler:
-        t0_roll = time.perf_counter()
-    #u_roll = u.roll(longitude=-lon_shift, roll_coords=False).load()
-    #v_roll = v.roll(longitude=-lon_shift, roll_coords=False).load()
     if w is not None:
         w0 = w.sel(
             latitude=geom_chunk.origin_latitude,
             longitude=olon,
             method="nearest"
         )
-    #    w_roll = w.roll(longitude=-lon_shift, roll_coords=False).load()
     else:
-        w0=None
-    #    w_roll=None
-    
-    if profiler:
-        profiler.add(
-            "field roll",
-            time.perf_counter() - t0_roll
-        )
+        w0 = None
 
-    # angular integration
-    if profiler:
-        t0_ang_int = time.perf_counter()
     if active_indices is None:
         if method != "spherical":
             print(
                 f"Error: Cannot compute full sphere with method = {method}; "
                 f"must use method = spherical.")
             sys.exit(1)
-        # compute over the full sphere
+        if profiler:
+            t0_roll = time.perf_counter()
+        u_roll = u.roll(longitude=-lon_shift, roll_coords=False).load()
+        v_roll = v.roll(longitude=-lon_shift, roll_coords=False).load()
+        w_roll = (
+            w.roll(longitude=-lon_shift, roll_coords=False).load()
+            if w is not None else None
+        )
+        if profiler:
+            profiler.add("field roll", time.perf_counter() - t0_roll)
+            t0_ang_int = time.perf_counter()
+
         du_cubed_ang_int_long, du_cubed_ang_int_vert = \
             compute_du3_angular_integral_global(
                 u_roll,
@@ -640,7 +635,8 @@ def process_origin_longitudes(
                 profiler=profiler,
             )
     else:
-        # compute within a spherical cap of radius max_R
+        if profiler:
+            t0_ang_int = time.perf_counter()
         du_cubed_ang_int_long, du_cubed_ang_int_vert = \
             compute_du3_angular_integral_subset(
                 u,

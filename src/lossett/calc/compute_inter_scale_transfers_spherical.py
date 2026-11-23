@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import cartopy as cpy
 import os
 
+from lossett.calc.spherical_geometry import RADIUS_EARTH
 from lossett.filtering.get_integration_kernels import get_integration_kernels
 from lossett.filtering.integration import integrate_over_scales
 
@@ -115,10 +116,12 @@ def compute_inter_scale_kinetic_energy_transfer(
     if ratio_L_to_ell is None:
         ratio_L_to_ell = kernel_props["ratio_L_to_ell"]
 
+    radial_area = RADIUS_EARTH * np.sin(r / RADIUS_EARTH)
+
     DL_u_long = (
         integrate_over_scales(
             du3_long,
-            dG_dr * dG_dr.r,
+            dG_dr * radial_area,
             ratio_rmax_to_ell=ratio_rmax_to_ell,
             scale_dim="length_scale",
             radial_dim="r",
@@ -151,7 +154,7 @@ def compute_inter_scale_kinetic_energy_transfer(
         DL_u_vert = - (
             integrate_over_scales(
                 du3_vert,
-                G * G.r,
+                G * radial_area,
                 ratio_rmax_to_ell=ratio_rmax_to_ell,
                 scale_dim="length_scale",
                 radial_dim="r",
@@ -159,7 +162,7 @@ def compute_inter_scale_kinetic_energy_transfer(
             * norm_factor
         ).rename("DL_u_vert_transverse_times_dz")
         
-        DL_u_vert = DL_u_long.assign_coords(
+        DL_u_vert = DL_u_vert.assign_coords(
             {
                 "L":
                 DL_u_vert.length_scale

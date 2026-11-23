@@ -15,11 +15,17 @@ dependencies = [
     "pandas",
     "datetime",
     "psutil",
-    "matplotlib"
+    "matplotlib",
+    "dask[array]",
+    "netCDF4",
+    "zarr"
 ]
 packages = [
     { include = "lossett" },
 ]
+
+[project.optional-dependencies]
+benchmark = ["ducc0"]
 
 [project.urls]
 repository = "https://github.com/ElliotMG/LoSSETT"

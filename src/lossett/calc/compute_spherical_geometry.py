@@ -18,6 +18,7 @@ from lossett.calc.spherical_geometry import (
 GRID_DEFS = {
     "5p0deg": (5.0, 5.0),
     "2p5deg": (2.5, 2.5),
+    "2p0deg": (2.0, 2.0),
     "1p0deg": (1.0, 1.0),
     "0p5deg": (0.5, 0.5),
     "0p25deg": (0.25, 0.25),

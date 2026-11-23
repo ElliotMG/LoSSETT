@@ -679,6 +679,7 @@ def select_active_points(
     use_angular_weights=False,
     method = "spherical",
     profiler = None,
+    lon_shift=0,
 ):
     # TO DO: introduce a dataclass and return just sel = dataclass
     # (should be more robust)
@@ -687,8 +688,9 @@ def select_active_points(
 
     if profiler:
         t0_uv = time.perf_counter()
-    u_sel = u.values[ilat, ilon]
-    v_sel = v.values[ilat, ilon]
+    target_ilon = (ilon + lon_shift) % u.sizes["longitude"]
+    u_sel = u.values[ilat, target_ilon]
+    v_sel = v.values[ilat, target_ilon]
 
     u0_sel = u0.values[i]
     v0_sel = v0.values[i]
@@ -740,7 +742,7 @@ def select_active_points(
     if profiler:
         t0_other = time.perf_counter()
     if w is not None:
-        w_sel = w.values[ilat, ilon]
+        w_sel = w.values[ilat, target_ilon]
         w0_sel = w0.values[i]
     else:
         w_sel = None
@@ -1055,6 +1057,7 @@ def compute_du3_angular_integral_subset(
                 use_angular_weights=use_angular_weights,
                 method=method,
                 profiler=profiler,
+                lon_shift=lon_shift,
             )
         else:
             (
@@ -1087,21 +1090,18 @@ def compute_du3_angular_integral_subset(
         if profiler:
             t0_du3 = time.perf_counter()
         if method == "spherical":
-            #du3_long, du3_vert = compute_delta_u_cubed_hybrid(
-            du3_long, du3_vert = compute_delta_u_cubed_numba(
-                u_sel,
-                v_sel,
-                u0_sel,
-                v0_sel,
-                sin_init_sel,
-                cos_init_sel,
-                sin_final_sel,
-                cos_final_sel,
-                w_sel,
-                w0_sel,
-                #w=w_sel,
-                #w0=w0_sel,
-            )
+            if w is None:
+                du3_long = compute_delta_u_cubed_numba_no_w(
+                    u_sel, v_sel, u0_sel, v0_sel,
+                    sin_init_sel, cos_init_sel, sin_final_sel, cos_final_sel,
+                )
+                du3_vert = None
+            else:
+                du3_long, du3_vert = compute_delta_u_cubed_numba(
+                    u_sel, v_sel, u0_sel, v0_sel,
+                    sin_init_sel, cos_init_sel, sin_final_sel, cos_final_sel,
+                    w_sel, w0_sel,
+                )
         elif method == "tangent_plane":
             du3_long = compute_delta_u_cubed_tangent_plane(
                 u_sel,
