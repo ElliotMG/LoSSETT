@@ -26,6 +26,7 @@ packages = [
 
 [project.optional-dependencies]
 benchmark = ["ducc0"]
+acceleration = ["numba"]
 
 [project.urls]
 repository = "https://github.com/ElliotMG/LoSSETT"

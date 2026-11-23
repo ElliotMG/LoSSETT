@@ -50,7 +50,7 @@ def _open_velocity(path):
 def shell_dataset(
     ds, *, time_index, level_index, level_dim, coordinate_type, coordinate_unit,
     radius, heat_time=None, mollifier_scale=None, atmosphere="deep",
-    quadrature_tolerance=0.01, cache_longitude_moments=False, compact_support=False,
+    quadrature_tolerance=0.01, cache_longitude_moments=False, compact_support=False, pair_backend="numpy",
 ):
     """Calculate and package one shell; velocities are east/north/radial in m/s."""
     valid_units = {"height": {"m": 1.0}, "pressure": {"Pa": 1.0, "hPa": 100.0}}
@@ -90,7 +90,7 @@ def shell_dataset(
         directions, velocity, grad, gradw, weights, radius=radius, heat_time=heat_time,
         mollifier_scale=mollifier_scale, atmosphere=atmosphere,
         quadrature_tolerance=quadrature_tolerance, cache_longitude_moments=cache_longitude_moments,
-        compact_support=compact_support,
+        compact_support=compact_support, pair_backend=pair_backend,
     )
     coordinate = float(selected[level_dim].values) * valid_units[coordinate_type][coordinate_unit]
     if not np.isfinite(coordinate) or (coordinate_type == "pressure" and coordinate <= 0):
@@ -110,6 +110,7 @@ def shell_dataset(
             "atmosphere": atmosphere,
             "kernel": "heat" if heat_time is not None else "mollifier",
             "kernel_parameter": float(kernel_parameter),
+            "pair_backend": pair_backend,
             "quadrature_tolerance": float(quadrature_tolerance),
             "time_value": str(selected.time.values),
         },
@@ -247,6 +248,8 @@ def main(argv=None):
                        help="reuse fiber moments across regular global longitude rotations")
     shell.add_argument("--compact-support", action="store_true",
                        help="restrict matched-mollifier targets to its exact compact support")
+    shell.add_argument("--pair-backend", choices=("numpy", "numba"), default="numpy",
+                       help="pairwise accumulation backend")
     vertical = sub.add_parser("vertical", help="reconstruct from at least three ordered shell stores")
     vertical.add_argument("--shells", nargs="+", required=True)
     vertical.add_argument("--output", required=True)
@@ -286,6 +289,7 @@ def main(argv=None):
                 atmosphere=args.atmosphere, quadrature_tolerance=args.quadrature_tolerance,
                 cache_longitude_moments=args.cache_longitude_moments,
                 compact_support=args.compact_support,
+                pair_backend=args.pair_backend,
             )
             out.attrs["velocity_source"] = str(Path(args.velocity_file).resolve())
             if hydrostatic_metadata is not None:

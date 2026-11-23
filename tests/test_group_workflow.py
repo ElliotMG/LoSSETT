@@ -129,3 +129,30 @@ def test_height_boussinesq_shallow_mollifier(tmp_path):
     ds.height.attrs["units"] = "hPa"
     with pytest.raises(ValueError, match="coordinate unit conflicts"):
         shell_dataset(ds, level_index=0, radius=100., **kwargs)
+
+
+def test_shell_cli_numba_backend(tmp_path):
+    pytest.importorskip("numba")
+    lat, lon = np.linspace(-90, 90, 5), np.arange(8) * 45.
+    dims = ("time", "height", "latitude", "longitude")
+    shape = (1, 1, len(lat), len(lon))
+    ds = xr.Dataset(
+        {name: (dims, np.zeros(shape)) for name in ("u", "v", "w")},
+        coords={"time": [0], "height": [0.], "latitude": lat, "longitude": lon},
+    )
+    source, output = tmp_path / "input.nc", tmp_path / "numba.zarr"
+    ds.to_netcdf(source)
+    main([
+        "shell", "--velocity-file", str(source), "--output", str(output), "--time-index", "0",
+        "--level-index", "0", "--level-dim", "height", "--coordinate-type", "height",
+        "--coordinate-unit", "m", "--radius", "100", "--mollifier-scale", "1.4",
+        "--pair-backend", "numba", "--cache-longitude-moments", "--compact-support",
+    ])
+    with xr.open_zarr(output) as actual:
+        assert actual.attrs["pair_backend"] == "numba"
+        expected = shell_dataset(
+            ds, time_index=0, level_index=0, level_dim="height", coordinate_type="height",
+            coordinate_unit="m", radius=100., mollifier_scale=1.4,
+        )
+        for name in expected.data_vars:
+            np.testing.assert_allclose(actual[name], expected[name], rtol=2e-11, atol=2e-11)

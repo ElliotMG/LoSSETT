@@ -153,6 +153,10 @@ For a regular global longitude grid, `--cache-longitude-moments` reuses
 the converged fiber moments across longitude rotations within each origin
 latitude. The grid is checked before caching; no interpolation of the
 kernel is used. The default remains the uncached reference path.
+Install `lossett[acceleration]` and pass `--pair-backend numba` (or
+`pair_backend="numba"` to `group_increment_grid`) for compiled pairwise
+accumulation. NumPy remains the default. The first call may include Numba
+compilation; subsequent calls can reuse the compiled code.
 
 For the matched mollifier only, `--compact-support` limits targets to the
 exact support of the increment kernel. If `--mollifier-scale` is `s`
@@ -161,8 +165,8 @@ within `2*s` and G = H*H within `min(4*s, pi)`. The calculation validates
 the entire input and retains the original solid-angle weights; it does not
 renormalize the selected targets. It requires a regular global longitude
 grid and can be combined with `--cache-longitude-moments`. The mollifier
-moments use a converged spectral approximation, set to zero outside their
-exact support; they may still require significant computation at fine
+moments use converged Legendre and Jacobi spectral recurrences, set to zero
+outside their exact support; they may still require significant computation at fine
 resolution. Spectral coefficients are reused across calls at the same
 angular scale and degree through a bounded in-process cache; convergence
 is still checked for each set of moments. Heat kernels have global support
@@ -388,6 +392,17 @@ path with and without spectral coefficient reuse took 255.27/306.52 s and
 start of each cached run. The maximum absolute output differences were zero.
 Those group timings are from a different allocation than the three-path
 comparison above.
+
+After replacing matched-mollifier fiber quadrature with the Legendre/Jacobi
+moment series, an equal-work 2-degree comparison on one LOTUS CPU took
+33.05--33.12 s with NumPy and 7.08--7.22 s with the warmed Numba pair
+backend. Both include shell setup and moment calculation, but exclude output
+writes and Numba compilation; compilation plus one pair took 2.48 s
+separately. The largest absolute differences from the saved direct-fiber
+baseline were 2.78e-17 for horizontal transfer, 2.12e-11 for structure,
+8.47e-12 for vertical flux, 1.36e-13 for mixed moment and 1.23e-14 for
+kernel mass. These equal-work backend timings should not be compared as
+controlled speedups with the older diagnostics measured on other nodes.
 
 For example, using an existing geometry archive and approved kernel parameters:
 

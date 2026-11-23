@@ -67,6 +67,28 @@ def test_mollifier_has_exact_compact_support_at_pilot_scale():
         np.testing.assert_allclose(g_response, h_response**2, atol=1e-10)
 
 
+@pytest.mark.parametrize("scale,degree", [(1e6 / 6382758.772639869, 1024), (0.6, 512), (1.4, 512)])
+def test_mollifier_moments_against_direct_fiber_quadrature(scale, degree):
+    support_edge = np.cos(min(4 * scale, np.pi))
+    mu = np.unique(np.array([
+        -1., -1. + 1e-12, -0.5, 0., support_edge, min(support_edge + 1e-8, 1.), 0.9, 1.,
+    ]))
+    coeff = _mollifier_spectral_coefficients(scale, degree)
+    summed = np.cumsum(coeff[::-1])[::-1]
+    chebyshev = np.r_[summed[0], 2 * summed[1:]]
+    psi = 2 * np.pi * np.arange(degree + 3) / (degree + 3)
+    cosine = np.cos(psi)
+    rotation_cosine = (1 + mu[:, None]) * (1 + cosine[None, :]) / 2 - 1
+    weight = np.polynomial.chebyshev.chebval(rotation_cosine, chebyshev)
+    reference = np.stack([
+        np.mean(weight, axis=1),
+        np.mean(weight * cosine, axis=1),
+        np.mean(weight * (2 * cosine**2 - 1), axis=1),
+    ]) / (4 * np.pi)
+    actual = mollifier_fiber_moments(mu, scale)
+    np.testing.assert_allclose(actual, reference, rtol=2e-10, atol=2e-10)
+
+
 def test_mollifier_reuses_spectral_coefficients(monkeypatch):
     original = np.polynomial.legendre.leggauss
     counts = []
@@ -261,6 +283,60 @@ def test_compact_support_reports_empty_selection():
             points, velocity, np.zeros(points.shape + (3,)), velocity, weights,
             radius=1., mollifier_scale=1e-8, compact_support=True, cache_longitude_moments=True,
         )
+
+
+@pytest.mark.parametrize(
+    "kernel,cache,compact,atmosphere",
+    [
+        ({"heat_time": 0.3}, False, False, "deep"),
+        ({"heat_time": 0.3}, True, False, "shallow"),
+        ({"mollifier_scale": 0.5}, False, True, "deep"),
+        ({"mollifier_scale": 0.5}, True, True, "shallow"),
+        ({"mollifier_scale": 1.0}, True, False, "deep"),
+    ],
+)
+def test_numba_pair_backend_matches_numpy(kernel, cache, compact, atmosphere):
+    pytest.importorskip("numba")
+    lat, lon = np.meshgrid(np.linspace(-np.pi / 2, np.pi / 2, 5), 0.37 + np.arange(8) * np.pi / 4, indexing="ij")
+    points = np.stack((np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)), axis=-1)
+    velocity = np.stack((points[..., 1] + 0.2, points[..., 2]**2, points[..., 0] - 0.3), axis=-1)
+    projector = np.eye(3) - points[..., :, None] * points[..., None, :]
+    grad = np.einsum("...ij,jk,...kl->...il", projector, np.diag([0.3, -0.5, 0.2]), projector)
+    gradw = np.einsum("...ij,j->...i", projector, [0.2, -0.1, 0.4])
+    weights = np.full(lat.shape, 4 * np.pi / lat.size)
+    args = (points, velocity, grad, gradw, weights)
+    options = dict(radius=2., quadrature_tolerance=5., atmosphere=atmosphere,
+                   cache_longitude_moments=cache, compact_support=compact, **kernel)
+    expected = group_increment_grid(*args, **options)
+    actual = group_increment_grid(*args, pair_backend="numba", **options)
+    for key in expected:
+        np.testing.assert_allclose(actual[key], expected[key], rtol=2e-11, atol=2e-11)
+
+
+def test_numba_pair_backend_rejects_invalid_inputs():
+    pytest.importorskip("numba")
+    points = np.array([[1., 0., 0.]])
+    velocity = np.zeros((1, 3))
+    grad = np.zeros((1, 3, 3))
+    gradw = np.zeros((1, 3))
+    weights = np.array([4 * np.pi])
+    args = (points, velocity, grad, gradw, weights)
+    options = dict(radius=2., heat_time=0.3, pair_backend="numba", quadrature_tolerance=5.)
+    for changed, message in [
+        ({"radius": 0.}, "radius must be positive"),
+        ({"atmosphere": "invalid"}, "atmosphere must be"),
+        ({"mollifier_scale": 0.5}, "specify exactly one"),
+        ({"quadrature_tolerance": 1e-12}, "under-resolves"),
+        ({"pair_backend": "invalid"}, "pair_backend must be"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            group_increment_grid(*args, **(options | changed))
+    invalid_velocity = velocity.copy()
+    invalid_velocity[0, 0] = np.nan
+    with pytest.raises(ValueError, match="inputs must be finite"):
+        group_increment_grid(points, invalid_velocity, grad, gradw, weights, **options)
+    with pytest.raises(ValueError, match="weights must be nonnegative"):
+        group_increment_grid(points, velocity, grad, gradw, -weights, **options)
 
 
 def test_shell_against_explicit_fiber_quadrature():

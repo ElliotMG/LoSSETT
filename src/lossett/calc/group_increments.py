@@ -236,7 +236,7 @@ def group_increment_grid(
     directions, velocity, horizontal_velocity_gradient, horizontal_w_gradient,
     solid_angle_weights, *, radius, heat_time=None, mollifier_scale=None,
     atmosphere="deep", fiber_tolerance=1e-9, quadrature_tolerance=1e-2,
-    cache_longitude_moments=False, compact_support=False,
+    cache_longitude_moments=False, compact_support=False, pair_backend="numpy",
 ):
     """Apply the reference single-shell implementation at all grid points.
 
@@ -245,6 +245,7 @@ def group_increment_grid(
     requires a latitude-by-longitude grid invariant under uniform rotations.
     ``compact_support`` restricts matched-mollifier targets to their exact
     support and requires the same regular-longitude grid.
+    ``pair_backend="numba"`` uses compiled pairwise accumulation.
     """
     directions = np.asarray(directions, dtype=float)
     if directions.ndim < 2 or directions.shape[-1] != 3:
@@ -259,6 +260,16 @@ def group_increment_grid(
         raise ValueError("quadrature_tolerance must be positive and finite")
     if velocity.shape != grid_shape + (3,) or grad.shape != grid_shape + (3, 3) or gradw.shape != grid_shape + (3,) or weights.shape != grid_shape:
         raise ValueError("grid input shapes do not match")
+    if pair_backend not in ("numpy", "numba"):
+        raise ValueError("pair_backend must be 'numpy' or 'numba'")
+    accumulate_group_pairs = None
+    if pair_backend == "numba":
+        try:
+            from lossett.calc._group_numba import accumulate_group_pairs
+        except ModuleNotFoundError as exc:
+            if exc.name != "numba":
+                raise
+            raise ModuleNotFoundError("the numba pair backend requires the acceleration extra") from exc
     if compact_support and (mollifier_scale is None or heat_time is not None):
         raise ValueError("compact support requires the matched mollifier kernel")
     nlon = grid_shape[1] if len(grid_shape) == 2 else 0
@@ -282,10 +293,18 @@ def group_increment_grid(
     gradw = gradw.reshape(n, 3)
     weights = weights.reshape(n)
     support_cosine = -1.
+    if compact_support or pair_backend == "numba":
+        _validate_group_targets(directions, velocity, grad, gradw, weights)
+    if pair_backend == "numba":
+        if (heat_time is None) == (mollifier_scale is None):
+            raise ValueError("specify exactly one of heat_time and mollifier_scale")
+        if not np.isfinite(radius) or radius <= 0:
+            raise ValueError("radius must be positive and finite")
+        if atmosphere not in ("deep", "shallow"):
+            raise ValueError("atmosphere must be 'deep' or 'shallow'")
     if compact_support:
         if mollifier_scale is None:
             raise ValueError("compact support requires the matched mollifier kernel")
-        _validate_group_targets(directions, velocity, grad, gradw, weights)
         if not np.isfinite(mollifier_scale) or not 0 < mollifier_scale < np.pi / 2:
             raise ValueError("angular_scale must be between 0 and pi/2")
         support_cosine = np.cos(min(4 * mollifier_scale, np.pi))
@@ -327,16 +346,35 @@ def group_increment_grid(
             if cached is None:
                 raise RuntimeError("fiber moments were not initialized")
             moments = tuple(np.roll(value, origin_lon, axis=1).ravel() for value in cached)
-        y = directions if indices is None else directions[indices]
-        uy = velocity if indices is None else velocity[indices]
-        target_grad = grad if indices is None else grad[indices]
-        target_gradw = gradw if indices is None else gradw[indices]
-        target_weights = weights if indices is None else weights[indices]
-        result = _group_increment_shell(
-            directions[i], velocity[i], y, uy, target_grad, target_gradw, target_weights,
-            radius=radius, heat_time=heat_time, mollifier_scale=mollifier_scale, atmosphere=atmosphere,
-            fiber_tolerance=fiber_tolerance, fiber_moments=moments, targets_validated=compact_support,
-        )
+        if pair_backend == "numba":
+            if accumulate_group_pairs is None:
+                raise RuntimeError("the numba pair backend was not initialized")
+            if moments is None:
+                targets = directions if indices is None else directions[indices]
+                mu = np.clip(targets @ directions[i], -1, 1)
+                if heat_time is not None:
+                    moments = heat_fiber_moments(mu, 2 * heat_time, tolerance=fiber_tolerance)
+                else:
+                    moments = mollifier_fiber_moments(mu, mollifier_scale, tolerance=fiber_tolerance)
+            raw = accumulate_group_pairs(
+                directions[i], velocity[i], directions, velocity, grad, gradw, weights,
+                *moments, 1 / radius if atmosphere == "deep" else 0., indices,
+            )
+            result = {
+                "horizontal": raw[0], "structure": raw[1], "vertical_flux": raw[2],
+                "mixed_moment": np.array(raw[3:6]), "kernel_mass": raw[6],
+            }
+        else:
+            y = directions if indices is None else directions[indices]
+            uy = velocity if indices is None else velocity[indices]
+            target_grad = grad if indices is None else grad[indices]
+            target_gradw = gradw if indices is None else gradw[indices]
+            target_weights = weights if indices is None else weights[indices]
+            result = _group_increment_shell(
+                directions[i], velocity[i], y, uy, target_grad, target_gradw, target_weights,
+                radius=radius, heat_time=heat_time, mollifier_scale=mollifier_scale, atmosphere=atmosphere,
+                fiber_tolerance=fiber_tolerance, fiber_moments=moments, targets_validated=compact_support,
+            )
         if abs(result["kernel_mass"] - 1) > quadrature_tolerance:
             raise ValueError(
                 f"endpoint quadrature under-resolves the kernel at origin {i}: "

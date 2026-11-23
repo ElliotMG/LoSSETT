@@ -146,6 +146,22 @@ def _mollifier_spectral_coefficients(angular_scale, degree):
     return (2 * np.arange(degree + 1) + 1) * multiplier**2
 
 
+def _jacobi_series(mu, coefficients, beta, start):
+    p0 = np.ones_like(mu)
+    result = coefficients[start] * p0
+    if start + 1 == len(coefficients):
+        return result
+    p1 = (-beta + (beta + 2) * mu) / 2
+    result += coefficients[start + 1] * p1
+    for n in range(2, len(coefficients) - start):
+        a = (2 * n + beta - 1) * ((2 * n + beta) * (2 * n + beta - 2) * mu - beta**2)
+        b = 2 * (n - 1) * (n + beta - 1) * (2 * n + beta)
+        p = (a * p1 - b * p0) / (2 * n * (n + beta) * (2 * n + beta - 2))
+        result += coefficients[start + n] * p
+        p0, p1 = p1, p
+    return result
+
+
 def mollifier_fiber_moments(mu, angular_scale, *, tolerance=1e-9, max_degree=2048):
     """Matched group moments for a scalar-endpoint standard mollifier H.
 
@@ -167,20 +183,14 @@ def mollifier_fiber_moments(mu, angular_scale, *, tolerance=1e-9, max_degree=204
     degree = 32
     while degree <= max_degree:
         coeff = _mollifier_spectral_coefficients(angular_scale, degree)
-        summed = np.cumsum(coeff[::-1])[::-1]
-        cheb_coeff = np.r_[summed[0], 2 * summed[1:]]
-        psi = 2 * np.pi * np.arange(degree + 3) / (degree + 3)
-        cosine = np.cos(psi)
-        current = np.empty((3, flat.size))
-        for start in range(0, flat.size, 128):
-            x = flat[start:start + 128]
-            angle_cosine = (1 + x[:, None]) * (1 + cosine[None, :]) / 2 - 1
-            weight = np.polynomial.chebyshev.chebval(angle_cosine, cheb_coeff)
-            current[:, start:start + len(x)] = np.stack([
-                np.mean(weight, axis=1),
-                np.mean(weight * cosine, axis=1),
-                np.mean(weight * (2 * cosine**2 - 1), axis=1),
-            ]) / (4 * np.pi)
+        normalized = coeff / (4 * np.pi)
+        half = (1 + flat) / 2
+        # Jacobi factors are the spin-one and spin-two rotation matrix elements.
+        current = np.stack((
+            np.polynomial.legendre.legval(flat, normalized),
+            half * _jacobi_series(flat, normalized, 2, 1),
+            half**2 * _jacobi_series(flat, normalized, 4, 2),
+        ))
         if previous is not None:
             scale = max(float(np.max(np.abs(current))), 1.0)
             tail_indicator = np.sum(coeff[-degree // 4:] * (2 * np.arange(degree + 1)[-degree // 4:] + 1)) / (4 * np.pi)

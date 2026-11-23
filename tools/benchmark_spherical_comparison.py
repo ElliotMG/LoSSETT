@@ -101,6 +101,7 @@ def main(argv=None):
     kernel.add_argument("--heat-time", type=float)
     kernel.add_argument("--mollifier-scale", type=float)
     parser.add_argument("--compact-support", action="store_true")
+    parser.add_argument("--pair-backend", choices=("numpy", "numba"), default="numpy")
     parser.add_argument("--legacy-coverage", choices=("cap", "global", "both"), default="cap")
     parser.add_argument("--origin-lat-chunksize", type=int, default=4)
     parser.add_argument("--use-angular-weights", action="store_true")
@@ -137,7 +138,8 @@ def main(argv=None):
         "shape": [len(lat), len(lon)], "pressure_hPa": args.pressure,
         "time_index": args.time_index, "physical_scale_km": args.physical_scale_km,
         "radius_m": args.radius, "heat_time": args.heat_time, "mollifier_scale": args.mollifier_scale,
-        "compact_support": args.compact_support, "legacy_coverage": args.legacy_coverage,
+        "compact_support": args.compact_support, "pair_backend": args.pair_backend,
+        "legacy_coverage": args.legacy_coverage,
         "legacy_angular_weights": args.use_angular_weights,
         "group_atmosphere": "deep", "legacy_radius_m": RADIUS_EARTH,
         "legacy_geometry_dir": str(Path(args.geometry_dir).resolve()),
@@ -169,7 +171,7 @@ def main(argv=None):
                 ds, time_index=0, level_index=0, level_dim="pressure", coordinate_type="pressure",
                 coordinate_unit="hPa", radius=args.radius, heat_time=args.heat_time,
                 mollifier_scale=args.mollifier_scale, cache_longitude_moments=True,
-                compact_support=args.compact_support,
+                compact_support=args.compact_support, pair_backend=args.pair_backend,
             )
             group_seconds = time.perf_counter() - start
             legacy_total = old_timing["increment_seconds_including_geometry_read"] + old_timing["scale_integration_seconds"]
