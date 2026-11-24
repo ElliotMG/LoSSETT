@@ -436,6 +436,39 @@ It defaults to one warm-up and two measured runs; use `--warmups 0` and
 `--repeats 1` for a single unwarmed calculation. The report records the
 input, grid shape, host, timing boundaries and peak memory.
 
+`tools/plot_transfer_comparison.py` plots saved horizontal outputs from
+the original Cartesian, old spherical, group Numba and group FFT paths.
+Supply the input NetCDF grid and any available outputs; missing paths are
+marked, and sampled group rings are shown only at their actual latitudes.
+For example:
+
+```bash
+python tools/plot_transfer_comparison.py --coordinates filtered_n640.nc \
+  --cartesian cartesian/transfer.zarr --legacy legacy-transfer.zarr \
+  --numba numba/numba_output.npy --fft fft/fft_output.npy \
+  --label "n640, 200 hPa" --output n640_comparison.png
+```
+
+Omit any options whose output is not available, and run separately for
+each grid. NumPy group outputs require their adjacent `results.json` and
+its input-file and row metadata. Zarr outputs must have one time, level
+and scale and the same coordinates as the supplied input; their input
+provenance and kernel settings must be checked separately. The figure
+compares the old longitudinal and group horizontal quantities, not a
+reconstructed vertical or total transfer. The Cartesian and old
+spherical kernel-gradient diagnostics and the group diagnostic, their
+kernels, radii and boundary treatments can differ, so a visual difference
+is not automatically a numerical error. The script refuses to overwrite
+an existing figure.
+
+The experimental longitude-FFT benchmark outputs described in the
+accompanying notes each use a single group-filter scale. Its kernel
+archive depends on that scale. The Cartesian and old spherical paths
+can reuse their radial increment integrals when integrating multiple
+length scales, so single-scale timings do not establish a multi-scale
+speedup. The FFT field transforms are scale-independent in the prototype,
+but reusing them across scales has not been benchmarked.
+
 ## Installation
 
 As a user: activate a suitable environment then pip install:
