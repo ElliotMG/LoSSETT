@@ -431,6 +431,11 @@ Use the optional `--legacy-reference` and `--group-reference` arguments
 to verify against existing output stores. The optional Cartesian driver
 currently requires a single-time input at 200 hPa.
 
+`tools/benchmark_real_cartesian.py` times the original checkout separately.
+It defaults to one warm-up and two measured runs; use `--warmups 0` and
+`--repeats 1` for a single unwarmed calculation. The report records the
+input, grid shape, host, timing boundaries and peak memory.
+
 ## Installation
 
 As a user: activate a suitable environment then pip install:

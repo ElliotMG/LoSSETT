@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import json
 import resource
+import socket
 import time
 from pathlib import Path
 
@@ -19,7 +20,11 @@ def main():
     parser.add_argument("--velocity-file", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--physical-scale-km", type=float, required=True)
+    parser.add_argument("--warmups", type=int, choices=(0, 1), default=1)
+    parser.add_argument("--repeats", type=int, default=2)
     args = parser.parse_args()
+    if args.repeats < 1:
+        parser.error("--repeats must be positive")
     args.output_dir.mkdir(exist_ok=False)
     ell = args.physical_scale_km * 500
     control = {
@@ -33,7 +38,7 @@ def main():
     read_seconds = time.perf_counter() - start
     samples = []
     with (args.output_dir / "calculation.log").open("w") as log:
-        for i in range(3):
+        for i in range(args.warmups + args.repeats):
             start = time.perf_counter()
             with contextlib.redirect_stdout(log):
                 result = calc_inter_scale_energy_transfer_kinetic(ds, control, length_scales=np.array([ell]))
@@ -43,7 +48,12 @@ def main():
     start = time.perf_counter()
     result.to_dataset().to_zarr(args.output_dir / "transfer.zarr", mode="w-", zarr_version=2)
     report = {
-        "input_read_seconds": read_seconds, "warmup_seconds": samples[0], "seconds": samples[1:],
+        "host": socket.gethostname(),
+        "velocity_file": str(Path(args.velocity_file).resolve()),
+        "grid_shape": [ds.sizes["latitude"], ds.sizes["longitude"]],
+        "input_read_seconds": read_seconds,
+        "warmup_seconds": samples[0] if args.warmups else None,
+        "seconds": samples[args.warmups:],
         "output_write_seconds": time.perf_counter() - start,
         "pressure_hPa": 200, "length_parameter_m": ell, "physical_support_m": 2 * ell,
         "longitude_boundary": "periodic", "latitude_boundary": "missing",
