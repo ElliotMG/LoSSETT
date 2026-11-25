@@ -133,16 +133,36 @@ def mollifier_les_fiber_moments(mu, angular_scale, *, tolerance=1e-9, max_nodes=
     raise ValueError("mollifier LES moments did not converge; increase max_nodes")
 
 
+_PANEL_NODES = 32
+
+
 @lru_cache(maxsize=32)
 def _mollifier_spectral_coefficients(angular_scale, degree):
-    nodes, weights = np.polynomial.legendre.leggauss(2 * degree + 2)
-    lower = np.cos(2 * angular_scale)
-    x = lower + (1 - lower) * (nodes + 1) / 2
-    theta = np.arccos(np.clip(x, -1, 1))
+    """Squared scalar multipliers of the standard mollifier, weighted by 2l+1.
+
+    The multipliers are integrals of the mollifier against P_l. They are built
+    with composite Gauss-Legendre panels in the colatitude and the three-term
+    Legendre recurrence, so memory is O(degree) rather than O(degree**2).
+    """
+    nodes, node_weights = np.polynomial.legendre.leggauss(_PANEL_NODES)
+    panels = max(1, -(-(2 * degree + 2) // _PANEL_NODES))
+    width = 2 * angular_scale / panels
+    starts = width * np.arange(panels)
+    theta = (starts[:, None] + width * (nodes[None, :] + 1) / 2).ravel()
+    x = np.cos(theta)
     profile = np.exp(-1 / (1 - (theta / (2 * angular_scale))**2))
-    weighted = weights * profile
-    basis = np.polynomial.legendre.legvander(x, degree)
-    multiplier = (weighted @ basis) / np.sum(weighted)
+    weighted = np.tile(node_weights * width / 2, panels) * np.sin(theta) * profile
+    multiplier = np.empty(degree + 1)
+    previous = np.ones_like(x)
+    multiplier[0] = weighted @ previous
+    if degree >= 1:
+        current = x.copy()
+        multiplier[1] = weighted @ current
+        for order in range(1, degree):
+            following = ((2 * order + 1) * x * current - order * previous) / (order + 1)
+            previous, current = current, following
+            multiplier[order + 1] = weighted @ current
+    multiplier /= multiplier[0]
     return (2 * np.arange(degree + 1) + 1) * multiplier**2
 
 
@@ -162,7 +182,7 @@ def _jacobi_series(mu, coefficients, beta, start):
     return result
 
 
-def mollifier_fiber_moments(mu, angular_scale, *, tolerance=1e-9, max_degree=2048):
+def mollifier_fiber_moments(mu, angular_scale, *, tolerance=1e-9, max_degree=16384):
     """Matched group moments for a scalar-endpoint standard mollifier H.
 
     The mollifier is exp(-1/(1-(theta/(2*angular_scale))**2)) inside
@@ -200,4 +220,126 @@ def mollifier_fiber_moments(mu, angular_scale, *, tolerance=1e-9, max_degree=204
                 return tuple(component.reshape(original_shape) for component in current)
         previous = current
         degree *= 2
-    raise ValueError("mollifier group moments did not converge; increase max_degree")
+    raise ValueError(
+        "mollifier group moments did not converge; increase max_degree or use "
+        "mollifier_fiber_moments_quadrature"
+    )
+
+
+def _mollifier_profile(theta, angular_scale):
+    ratio = (theta / (2 * angular_scale))**2
+    out = np.zeros_like(theta)
+    inside = ratio < 1
+    out[inside] = np.exp(-1 / (1 - ratio[inside]))
+    return out
+
+
+@lru_cache(maxsize=16)
+def _central_kernel_series(angular_scale, n_abel, n_central, n_abel_quad):
+    """Chebyshev series in rotation angle of the matched central kernel G(phi).
+
+    The scalar multipliers of the mollifier are half-integer cosine transforms of
+    its Abel transform W, so the squared multipliers give
+    sin(phi/2) G(phi) proportional to the convolution of W with W'. Everything is
+    evaluated in physical space, with no degree truncation. The overall constant
+    is left to the caller, which normalizes the scalar moment g.
+    """
+    cheb = np.polynomial.chebyshev
+    s = angular_scale
+    x_nodes, x_weights = np.polynomial.legendre.leggauss(n_abel_quad)
+    v, v_weights = (x_nodes + 1) / 2, x_weights / 2
+    first = np.cos(np.pi * (np.arange(n_abel) + .5) / n_abel)[::-1]
+    t = s * (first + 1)
+    separation = (2 * s - t)[:, None] * v[None, :]**2
+    theta = t[:, None] + separation
+    # cos(t)-cos(theta) written as a product to avoid cancellation at small angles
+    denominator = np.maximum(np.sqrt(2 * np.sin((theta + t[:, None]) / 2) * np.sin(separation / 2)), 1e-300)
+    jacobian = 2 * (2 * s - t)[:, None] * v[None, :]
+    abel = np.sum(v_weights * jacobian * _mollifier_profile(theta, s) * np.sin(theta) / denominator, axis=1)
+    abel_series = cheb.chebfit(first, abel, n_abel - 1)
+    derivative_series = cheb.chebder(abel_series) / s
+
+    def abel_even(x):
+        return cheb.chebval(np.clip(np.abs(x) / s - 1, -1, 1), abel_series) * (np.abs(x) < 2 * s)
+
+    def abel_slope(x):
+        return np.sign(x) * cheb.chebval(np.clip(np.abs(x) / s - 1, -1, 1), derivative_series) * (np.abs(x) < 2 * s)
+
+    second = np.cos(np.pi * (np.arange(n_central) + .5) / n_central)[::-1]
+    phi = 2 * s * (second + 1)
+    convolution = np.zeros(n_central)
+    quad_nodes, quad_weights = np.polynomial.legendre.leggauss(max(300, n_central // 2))
+    for index, angle in enumerate(phi):
+        lower, upper = max(angle - 2 * s, -2 * s), min(angle + 2 * s, 2 * s)
+        a = lower + (upper - lower) * (quad_nodes + 1) / 2
+        convolution[index] = np.sum(quad_weights * (upper - lower) / 2 * abel_even(a) * abel_slope(angle - a))
+    return cheb.chebfit(second, convolution / np.sin(phi / 2), n_central - 1)
+
+
+def _central_fiber_moments(mu, angular_scale, series, n_fiber):
+    """Unnormalized (g, h, k) fiber integrals of the central kernel at each mu."""
+    cheb = np.polynomial.chebyshev
+    support = 4 * angular_scale
+    nodes, weights = np.polynomial.legendre.leggauss(n_fiber)
+    out = np.zeros((3, len(mu)))
+    for index, value in enumerate(mu):
+        argument = 2 * (1 + np.cos(support)) / (1 + value) - 1
+        if argument >= 1:
+            continue
+        psi_max = np.arccos(max(argument, -1))
+        psi = psi_max * (nodes + 1) / 2
+        phi = np.arccos(np.clip((1 + value) * (1 + np.cos(psi)) / 2 - 1, -1, 1))
+        kernel = cheb.chebval(np.clip(phi / (2 * angular_scale) - 1, -1, 1), series) * psi_max * weights
+        out[:, index] = (kernel.sum(), (kernel * np.cos(psi)).sum(), (kernel * np.cos(2 * psi)).sum())
+    return out
+
+
+@lru_cache(maxsize=16)
+def _quadrature_moment_table(angular_scale, n_abel, n_central, n_abel_quad, n_fiber, n_panels, order):
+    series = _central_kernel_series(angular_scale, n_abel, n_central, n_abel_quad)
+    support = 4 * angular_scale
+    nodes, node_weights = np.polynomial.legendre.leggauss(400)
+    distance = support * (nodes + 1) / 2
+    scalar = _central_fiber_moments(np.cos(distance), angular_scale, series, n_fiber)[0]
+    constant = 1 / (2 * np.pi * np.sum(scalar * np.sin(distance) * support / 2 * node_weights))
+    cheb = np.cos(np.pi * (np.arange(order + 1) + .5) / (order + 1))[::-1]
+    coefficients = np.zeros((n_panels, order + 1, 3))
+    for panel in range(n_panels):
+        angles = support * (panel + (cheb + 1) / 2) / n_panels
+        values = constant * _central_fiber_moments(np.cos(angles), angular_scale, series, n_fiber).T
+        coefficients[panel] = np.polynomial.chebyshev.chebfit(cheb, values, order)
+    return support, coefficients
+
+
+def mollifier_fiber_moments_quadrature(mu, angular_scale, *, n_abel=400, n_central=400,
+                                       n_abel_quad=160, n_fiber=128, n_panels=64, order=12):
+    """Matched group moments of the standard mollifier by physical-space quadrature.
+
+    Same quantities as mollifier_fiber_moments, but the central kernel is built
+    from the Abel transform of the mollifier and fiber-integrated directly, so
+    there is no degree limit and the cost is nearly independent of the support.
+    The moments are tabulated on piecewise Chebyshev panels in the separation
+    angle. Requires 4*angular_scale < pi.
+    """
+    mu = np.asarray(mu, dtype=float)
+    if not np.all(np.isfinite(mu)) or np.any((mu < -1) | (mu > 1)):
+        raise ValueError("mu must be finite and between -1 and 1")
+    if not np.isfinite(angular_scale) or not 0 < angular_scale < np.pi / 4:
+        raise ValueError("angular_scale must be between 0 and pi/4")
+    support, coefficients = _quadrature_moment_table(
+        float(angular_scale), n_abel, n_central, n_abel_quad, n_fiber, n_panels, order)
+    flat = mu.ravel()
+    distance = np.arccos(flat)
+    out = np.zeros((3, flat.size))
+    inside = distance <= support
+    position = distance[inside] / support * n_panels
+    panel = np.minimum(position.astype(int), n_panels - 1)
+    local = 2 * (position - panel) - 1
+    values = np.zeros((3, position.size))
+    for index in np.unique(panel):
+        mask = panel == index
+        for component in range(3):
+            values[component, mask] = np.polynomial.chebyshev.chebval(
+                local[mask], coefficients[index][:, component])
+    out[:, inside] = values
+    return tuple(component.reshape(mu.shape) for component in out)

@@ -12,6 +12,7 @@ from lossett.calc.group_increments import (
 )
 from lossett.filtering.group_kernels import (
     _heat_weight, _mollifier_spectral_coefficients, heat_fiber_moments, mollifier_fiber_moments,
+    mollifier_fiber_moments_quadrature,
 )
 
 
@@ -506,3 +507,35 @@ def test_anelastic_group_separation_identity():
     W = _heat_weight(cos_angle, 0.4) / (4 * np.pi)
     X = -0.5 * np.dot(weights, np.mean(W * np.sum(du * dn, axis=2), axis=1))
     np.testing.assert_allclose(results[1]["horizontal"] + vertical, X + ux @ grad_s / 4, atol=3e-8)
+
+
+def test_recurrence_spectral_coefficients_match_dense_legendre_matrix():
+    scale, degree = 0.3, 200
+    nodes, weights = leggauss(2 * degree + 2)
+    lower = np.cos(2 * scale)
+    x = lower + (1 - lower) * (nodes + 1) / 2
+    profile = np.exp(-1 / (1 - (np.arccos(x) / (2 * scale))**2))
+    multiplier = (weights * profile) @ np.polynomial.legendre.legvander(x, degree) / np.sum(weights * profile)
+    expected = (2 * np.arange(degree + 1) + 1) * multiplier**2
+    np.testing.assert_allclose(_mollifier_spectral_coefficients(scale, degree), expected, rtol=1e-9, atol=1e-14)
+
+
+@pytest.mark.parametrize("radius_km", [4000., 1000.])
+def test_quadrature_moments_match_spectral_builder(radius_km):
+    scale = radius_km * 1e3 / (4 * 6382758.772639869)
+    mu = np.cos(np.linspace(0, 4 * scale * 1.02, 60))
+    spectral = np.array(mollifier_fiber_moments(mu, scale))
+    quadrature = np.array(mollifier_fiber_moments_quadrature(mu, scale))
+    np.testing.assert_allclose(quadrature, spectral, rtol=0, atol=1e-9 * spectral[0, 0])
+
+
+def test_quadrature_moments_reach_supports_beyond_the_spectral_default():
+    scale = 25e3 / (4 * 6382758.772639869)
+    distance, weights = leggauss(300)
+    angle = 2 * scale * (distance + 1)
+    g, h, k = mollifier_fiber_moments_quadrature(np.cos(angle), scale)
+    np.testing.assert_allclose(2 * np.pi * np.sum(g * np.sin(angle) * 2 * scale * weights), 1, atol=1e-9)
+    assert np.all(np.abs(h) <= g + 1e-9 * g[0])
+    assert np.all(np.abs(k) <= g + 1e-9 * g[0])
+    with pytest.raises(ValueError, match="mollifier_fiber_moments_quadrature"):
+        mollifier_fiber_moments(np.cos(angle), scale, max_degree=1024)
