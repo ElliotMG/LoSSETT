@@ -11,12 +11,13 @@ import numpy as np
 from numpy.polynomial.legendre import leggauss
 
 from group_angle_binning import central_mollifier_nodes, group_angle_moments, segmented_group_angle_moments
+from coherent_fiber_reduction import fiber_hat_table
 from lossett.calc.group_increments import _transport
 from lossett.filtering.group_kernels import mollifier_fiber_moments
 
 
 ROOT = Path("/work/scratch-pw5/dship/upscale/LoSSETT/spherical_geometry")
-OUTPUT = ROOT / "group_binning_commutation_refined_20261124"
+OUTPUT = ROOT / "group_binning_commutation_table_20261125"
 RADIUS = 6382758.772639869
 SCALE = 1e6/RADIUS
 SUPPORT = 4*SCALE
@@ -48,6 +49,13 @@ def main():
         group, clip, masses, elapsed = central_mollifier_nodes(SUPPORT, bins, [SCALE])
         settings[bins] = (endpoint, group[0], {"group_clipping": clip, "group_mass_before_normalization": masses,
                                                 "group_table_seconds": elapsed})
+    gauss = leggauss(8)
+    tables = {}
+    for bins, distance_bins in ((512, 2048), (512, 4096)):
+        thetas = np.linspace(0, SUPPORT, distance_bins+1)
+        table = fiber_hat_table(thetas, SUPPORT, bins, *gauss)
+        # moments at the distance nodes: the table applied to the sampled central kernel
+        tables[(bins, distance_bins)] = (thetas, np.einsum("sjb,b->js", table, settings[bins][1]))
     results = []
     for n in (48, 96, 192):
         points, weights = grid(n)
@@ -60,10 +68,12 @@ def main():
             ("group_angle", 512, 2048),
             ("group_segmented", 128, 8), ("group_segmented", 512, 8),
             ("group_segmented", 512, 16),
+            ("group_distance_table", 512, 2048), ("group_distance_table", 512, 4096),
         ):
             if n == 192 and not (
                 mode == "reference" or (mode == "endpoint" and bins == 512)
                 or (mode == "group_segmented" and bins == 512 and fiber == 8)
+                or mode == "group_distance_table"
             ):
                 continue
             start = time.perf_counter()
@@ -82,6 +92,10 @@ def main():
                     ])
                 elif mode == "group_angle":
                     moments = group_angle_moments(mu, SUPPORT, settings[bins][1], fiber)
+                elif mode == "group_distance_table":
+                    thetas, node_moments = tables[(bins, fiber)]
+                    distance = np.arccos(mu)
+                    moments = np.column_stack([np.interp(distance, thetas, node_moments[:, j]) for j in range(3)])
                 else:
                     moments = segmented_group_angle_moments(mu, SUPPORT, settings[bins][1], fiber)
                 grad_transported = _transport(gradient[inside], y, np.broadcast_to(origin, y.shape))
@@ -113,7 +127,7 @@ def main():
                 target_div_curl = -2*center[0]
                 record = {
                     "n_gauss": n, "nlon": 2*n, "method": mode, "bins": bins,
-                    "fiber_points_or_segment_order": fiber, "difference_step_radians": step,
+                    "fiber_points_or_segment_order_or_distance_bins": fiber, "difference_step_radians": step,
                     "gradient_absolute_commutator": float(np.linalg.norm(center[1]-grad_filtered)),
                     "gradient_reference_norm": float(np.linalg.norm(center[1])),
                     "divergence_absolute_commutator": float(abs(div_filtered-target_div_curl)),
